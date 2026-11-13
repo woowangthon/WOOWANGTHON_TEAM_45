@@ -84,7 +84,7 @@ by_id = {r["id"]: r for r in rows}
 # ── 상태 ──────────────────────────────────────────────────────
 DEFAULTS = dict(step=1, f_rent=45, f_dep="상관없음", f_gate="정문", f_walk=15,
                 f_kinds=list(rc.KINDS), f_opts=[], f_pri=[], f_top=5,
-                sentence="", sel_listing=rows[0]["id"], ai_calls=0, searched=None,
+                sentence="", sel_listing=rows[0]["id"], ai_calls=0, searched=None, limits=None, ai_note=None,
                 understood=None, scroll_top=False)
 for k, v in DEFAULTS.items():
     st.session_state.setdefault(k, v)
@@ -137,10 +137,12 @@ def find_by_sentence():
     """「찾기」: 문장 → 조건(Gemini 1회, 실패하면 규칙) → 검색 → 2단계로."""
     sentence = (st.session_state.sentence or "").strip()
     if sentence:
-        fields = None
+        fields, note = None, f"이 화면에서 AI 검색 {ai_parse.SESSION_LIMIT}번을 다 써서 간단 해석으로 찾았어요."
         if st.session_state.ai_calls < ai_parse.SESSION_LIMIT:
             st.session_state.ai_calls += 1
-            fields, _ = ai_parse.request_parse(sentence)
+            fields, note = ai_parse.request_parse(sentence)
+            st.session_state.limits = ai_parse.last_limits or st.session_state.limits
+        st.session_state.ai_note = note
         cond, understood = rc.cond_from_ai(fields) if fields is not None else rc.parse_sentence(sentence)
         fill_inputs(cond)
         st.session_state.understood = understood
@@ -151,8 +153,57 @@ def find_by_sentence():
 def find_by_inputs():
     """「이 조건으로 찾기」: 입력칸 값으로만 검색 (Gemini 0회) → 2단계로."""
     st.session_state.understood = None
+    st.session_state.ai_note = None
     save_search()
     go(2)
+
+
+def refresh_limits():
+    st.session_state.limits = ai_parse.fetch_limits() or st.session_state.limits
+    st.session_state.limits_loaded = True
+
+
+def bar(used, limit):
+    """얇은 막대 하나 (남은 양이 적을수록 주황·빨강)."""
+    pct = 0 if not limit else min(100, round(used / limit * 100))
+    color = "#16a34a" if pct < 70 else "#d97706" if pct < 90 else "#e5484d"
+    return (f'<div style="height:6px;border-radius:3px;background:rgba(128,128,128,0.2);margin:2px 0 8px">'
+            f'<div style="width:{pct}%;height:6px;border-radius:3px;background:{color}"></div></div>')
+
+
+def limit_box():
+    """「검색 제한」: Gemini(AI) 사용량. 한도를 넘으면 AI 대신 간단 해석으로 찾는다."""
+    if not st.session_state.get("limits_loaded"):
+        refresh_limits()
+    lim = st.session_state.limits
+    left = max(0, ai_parse.SESSION_LIMIT - st.session_state.ai_calls)
+    rows = [("이 화면에서 남은 AI 사용", f"{left} / {ai_parse.SESSION_LIMIT}번",
+             ai_parse.SESSION_LIMIT - left, ai_parse.SESSION_LIMIT)]
+    if lim:
+        rows += [
+            ("나의 오늘 사용", f"{lim['my_today_used']} / {lim['my_today_limit']}번", lim["my_today_used"], lim["my_today_limit"]),
+            ("나의 최근 1분", f"{lim['my_minute_used']} / {lim['my_minute_limit']}번", lim["my_minute_used"], lim["my_minute_limit"]),
+            ("사이트 전체 오늘", f"{lim['today_used']} / {lim['today_limit']}번", lim["today_used"], lim["today_limit"]),
+            ("사이트 전체 최근 1분", f"{lim['minute_used']} / {lim['minute_limit']}번 · 토큰 {lim['minute_tokens']:,} / {lim['token_limit']:,}",
+             max(lim["minute_used"] / max(lim["minute_limit"], 1), lim["minute_tokens"] / max(lim["token_limit"], 1)) * 100, 100),
+        ]
+    with st.container(border=True):
+        head, btn = st.columns([5, 1], vertical_alignment="center")
+        with head:
+            st.markdown("**검색 제한** <span class=\"sh-muted\">Gemini AI 사용량</span>", unsafe_allow_html=True)
+        with btn:
+            st.button("새로고침", key="limits_refresh", on_click=refresh_limits, use_container_width=True)
+        cols = st.columns(len(rows))
+        for col, (name, text, used, limit) in zip(cols, rows):
+            with col:
+                st.markdown(f'<div class="sh-muted">{html.escape(name)}</div><div><b>{html.escape(text)}</b></div>'
+                            + bar(used, limit), unsafe_allow_html=True)
+        if lim and lim.get("cooldown_sec"):
+            st.markdown(f'<div class="sh-muted">지금 Google 한도에 닿아 쉬는 중이에요. {lim["cooldown_sec"]}초 뒤에 AI를 다시 써요.</div>',
+                        unsafe_allow_html=True)
+        st.caption("한도를 넘으면 AI 대신 간단 해석으로 찾아요(검색은 계속 돼요). "
+                   + ("서버 숫자는 대략이에요. 서버가 새로 뜨면 0부터 다시 세요." if lim
+                      else "서버 사용량을 불러오지 못해 이 화면 기준만 보여요."))
 
 
 def open_contract(listing_id):
@@ -283,6 +334,8 @@ if step == 1:
     with q2:
         st.button("찾기", type="primary", on_click=find_by_sentence, use_container_width=True)
 
+    limit_box()
+
     with st.expander("조건 직접 고르기"):
         c1, c2, c3 = st.columns(3)
         with c1:
@@ -309,6 +362,8 @@ elif step == 2:
         st.button("조건 바꾸기", on_click=go, args=(1,), use_container_width=True)
     if st.session_state.understood == []:
         st.caption("문장에서 조건을 찾지 못해 기본 조건으로 찾았어요. 「조건 바꾸기」에서 직접 골라 주세요.")
+    if st.session_state.ai_note:  # AI를 못 쓴 이유 (검색 제한·연결 실패 등)
+        st.caption(f"검색 제한 · {st.session_state.ai_note}")
 
     st.markdown(f"### 조건에 맞는 집 {len(hits)}곳")
     if not ranked:

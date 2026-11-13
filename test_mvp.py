@@ -166,6 +166,23 @@ def test_highlights(rows, docs, regs):
     print("\n[7] 계약서 위험 줄 표시 (사례 E):", " / ".join(f"{n['no']}. {n['title']}" for n in h["notes"]))
 
 
+def test_limits():
+    """[11] 화면의 「검색 제한」: 서버가 준 사용량 숫자만 받고, 실패하면 None."""
+    lim = {"my_today_used": 3, "my_today_limit": 30, "my_minute_used": 1, "my_minute_limit": 3, "today_used": 12,
+           "today_limit": 450, "minute_used": 2, "minute_limit": 12, "minute_tokens": 900, "token_limit": 200000,
+           "cooldown_sec": 0, "이상한값": "x"}
+    ai_parse.os.environ["SAFEHOME_API_URL"] = "https://example.test/api/parse"
+    got = ai_parse.fetch_limits(get=lambda url: (200, json.dumps({"ok": True, "limits": lim})))
+    assert got["today_used"] == 12 and "이상한값" not in got
+    ai_parse.request_parse("월세 40", post=lambda url, p: (429, json.dumps(
+        {"ok": False, "error": "daily_total", "message": "한도", "limits": {**lim, "today_used": 450}})))
+    assert ai_parse.last_limits["today_used"] == 450, "한도에 걸린 응답의 사용량도 화면에 반영"
+    assert ai_parse.fetch_limits(get=lambda url: (_ for _ in ()).throw(OSError("down"))) is None
+    del ai_parse.os.environ["SAFEHOME_API_URL"]
+    assert ai_parse.fetch_limits() is None  # 로컬 실행(주소 없음)
+    print("\n[11] 검색 제한 표시: 사이트 오늘", ai_parse.last_limits["today_used"], "/", ai_parse.last_limits["today_limit"])
+
+
 if __name__ == "__main__":
     db = Path(tempfile.mkdtemp()) / "test.db"
     db_seed.build(db)
@@ -177,4 +194,5 @@ if __name__ == "__main__":
     test_market(rows, db)
     test_ai_parse(rows)
     test_highlights(rows, docs, regs)
+    test_limits()
     print("\n모든 테스트 통과 ✅")

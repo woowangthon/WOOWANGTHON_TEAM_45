@@ -9,24 +9,37 @@
 //        4xx/5xx {"ok": false, "error": "...", "message": "화면에 띄울 안내"}
 //
 // 환경 변수 (Vercel → Settings → Environment Variables)
-//   GEMINI_API_KEY        필수. Google AI Studio에서 발급
-//   GEMINI_MODEL          선택. 기본 gemini-3.5-flash-lite (2.5 계열은 새 계정에서 404)
-//   LIMIT_PER_MINUTE      선택. 한 사용자(IP) 분당 최대 호출. 기본 5
-//   LIMIT_PER_DAY_IP      선택. 한 사용자(IP) 하루 최대 호출. 기본 30
-//   LIMIT_PER_DAY_TOTAL   선택. 전체 하루 최대 호출. 기본 200
-//                         → AI Studio에서 확인한 RPD(하루 최대 요청)보다 작게 잡는다.
+//   GEMINI_API_KEY          필수. Google AI Studio에서 발급
+//   GEMINI_MODEL            선택. 기본 gemini-3.5-flash-lite (2.5 계열은 새 계정에서 404)
 //
-// 주의: 아래 횟수 제한은 함수 인스턴스 메모리에 저장하는 "최소한의 방어"예요. Vercel이 인스턴스를
-// 새로 띄우면 숫자가 초기화될 수 있어요. 정확한 제한이 필요하면 Upstash Redis 같은 저장소를 붙여요.
-// 최종 안전장치는 Google 쪽 할당량이라, 한도를 넘으면 Gemini가 429를 주고 화면은 규칙 해석으로 대체해요.
+// 호출 제한 — Gemini 무료 한도(11/12 AI Studio 확인: RPM 15 · TPM 25만 · RPD 500)에 여유를 두고 맞춤
+//   LIMIT_GLOBAL_PER_MINUTE 서비스 전체 분당 호출.       기본 12      (Google RPM 15의 80%)
+//   LIMIT_TOKENS_PER_MINUTE 서비스 전체 분당 토큰.       기본 200000  (Google TPM 25만의 80%)
+//   LIMIT_PER_DAY_TOTAL     서비스 전체 하루 호출.       기본 450     (Google RPD 500의 90%)
+//   LIMIT_PER_MINUTE        한 사용자(IP) 분당 호출.     기본 3       (한 사람이 분당 한도를 다 쓰지 않게)
+//   LIMIT_PER_DAY_IP        한 사용자(IP) 하루 호출.     기본 30
+//   MAX_OUTPUT_TOKENS       한 번 답의 최대 토큰.        기본 256     (조건 JSON은 100토큰 안팎)
+//   한도를 바꾸면(유료 전환 등) 위 숫자를 Vercel 환경 변수로 덮어쓰고 Redeploy 하면 돼요.
+//
+// 주의: 아래 제한은 함수 인스턴스 메모리에 저장하는 "최소한의 방어"예요. Vercel이 인스턴스를
+// 새로 띄우거나 여러 개 띄우면 숫자가 나뉘거나 초기화될 수 있어요. 그래서 Google이 429(한도 초과)를
+// 주면 1분 동안 Gemini 호출을 멈추고 규칙 해석으로 대신해요. 정확히 세려면 Upstash Redis 같은 저장소를 붙여요.
 
 const MODEL = process.env.GEMINI_MODEL || "gemini-3.5-flash-lite";
 const MAX_CHARS = 200;
 const TIMEOUT_MS = 15000;
+const env = (name, fallback) => {
+  const v = Number(process.env[name]);
+  return Number.isFinite(v) && v > 0 ? v : fallback;
+};
 const LIMITS = {
-  perMinute: Number(process.env.LIMIT_PER_MINUTE) || 5,
-  perDayIp: Number(process.env.LIMIT_PER_DAY_IP) || 30,
-  perDayTotal: Number(process.env.LIMIT_PER_DAY_TOTAL) || 200,
+  globalPerMinute: env("LIMIT_GLOBAL_PER_MINUTE", 12),
+  tokensPerMinute: env("LIMIT_TOKENS_PER_MINUTE", 200_000),
+  perDayTotal: env("LIMIT_PER_DAY_TOTAL", 450),
+  perMinute: env("LIMIT_PER_MINUTE", 3),
+  perDayIp: env("LIMIT_PER_DAY_IP", 30),
+  maxOutputTokens: env("MAX_OUTPUT_TOKENS", 256),
+  cooldownMs: 60_000,
 };
 
 const GATES = ["정문", "중문", "후문"];
@@ -34,37 +47,87 @@ const KINDS = ["원룸", "투룸", "오피스텔"];
 const OPTIONS = ["세탁기", "냉장고", "에어컨", "인덕션", "침대", "책상"];
 const FACTORS = ["가격", "거리", "관리비", "넓이", "채광", "옵션", "조용함"];
 
-// ── 호출 횟수 제한 (인스턴스 메모리) ─────────────────────────
-const usage = { day: "", total: 0, ips: new Map() };
+// ── 호출 제한 (인스턴스 메모리) ──────────────────────────────
+const usage = { day: "", total: 0, ips: new Map(), recent: [], tokens: [], blockedUntil: 0 };
 
-function today() {
-  // 한국 날짜 기준으로 하루를 센다
-  return new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+function today(now = Date.now()) {
+  // 한국 날짜 기준으로 하루를 센다 (Google RPD는 태평양 시간 자정에 초기화돼서 여유를 둠)
+  return new Date(now + 9 * 3600 * 1000).toISOString().slice(0, 10);
 }
 
-function checkLimit(ip, now = Date.now()) {
-  const d = today();
+// 한 번 호출에 쓸 토큰 어림값: 프롬프트+문장 글자 수(한국어는 대략 글자당 1토큰 이하) + 최대 출력
+function estimateTokens(text) {
+  return PROMPT.length + text.length + LIMITS.maxOutputTokens;
+}
+
+function checkLimit(ip, text = "", now = Date.now()) {
+  const d = today(now);
   if (usage.day !== d) {
     usage.day = d;
     usage.total = 0;
     usage.ips.clear();
   }
+  usage.recent = usage.recent.filter((t) => now - t < 60_000);
+  usage.tokens = usage.tokens.filter((e) => now - e.t < 60_000);
+  const est = estimateTokens(text);
+
+  if (now < usage.blockedUntil) return "cooldown";
   if (usage.total >= LIMITS.perDayTotal) return "daily_total";
+  if (usage.recent.length >= LIMITS.globalPerMinute) return "global_minute";
+  const usedTokens = usage.tokens.reduce((a, e) => a + e.n, 0);
+  if (usedTokens + est > LIMITS.tokensPerMinute) return "global_tokens";
+
   const rec = usage.ips.get(ip) || { day: 0, recent: [] };
   rec.recent = rec.recent.filter((t) => now - t < 60_000);
   if (rec.day >= LIMITS.perDayIp) return "daily_ip";
   if (rec.recent.length >= LIMITS.perMinute) return "per_minute";
+
   rec.day += 1;
   rec.recent.push(now);
   usage.ips.set(ip, rec);
   usage.total += 1;
-  return null;
+  usage.recent.push(now);
+  const entry = { t: now, n: est }; // 응답이 오면 실제 사용량으로 바꿈
+  usage.tokens.push(entry);
+  return { entry };
+}
+
+// Gemini 응답의 실제 토큰 수로 기록을 고친다
+function recordTokens(entry, actual) {
+  if (entry && Number.isFinite(actual) && actual > 0) entry.n = actual;
+}
+
+// Google이 한도 초과(429)를 주면 1분 동안 Gemini를 부르지 않는다
+function startCooldown(now = Date.now()) {
+  usage.blockedUntil = now + LIMITS.cooldownMs;
+}
+
+// 화면의 「검색 제한」 칸에 보여 줄 숫자 (ip를 주면 그 사람 사용량도 함께)
+function limitStatus(now = Date.now(), ip = null) {
+  const rec = ip ? usage.ips.get(ip) : null;
+  const sameDay = usage.day === today(now);
+  return {
+    my_today_used: rec && sameDay ? rec.day : 0,
+    my_today_limit: LIMITS.perDayIp,
+    my_minute_used: rec ? rec.recent.filter((t) => now - t < 60_000).length : 0,
+    my_minute_limit: LIMITS.perMinute,
+    today_used: sameDay ? usage.total : 0,
+    today_limit: LIMITS.perDayTotal,
+    minute_used: usage.recent.filter((t) => now - t < 60_000).length,
+    minute_limit: LIMITS.globalPerMinute,
+    minute_tokens: usage.tokens.filter((e) => now - e.t < 60_000).reduce((a, e) => a + e.n, 0),
+    token_limit: LIMITS.tokensPerMinute,
+    cooldown_sec: Math.max(0, Math.ceil((usage.blockedUntil - now) / 1000)),
+  };
 }
 
 const LIMIT_MESSAGES = {
-  per_minute: "AI 분석을 너무 자주 눌렀어요. 1분 뒤에 다시 시도해 주세요.",
-  daily_ip: "오늘 AI 분석 횟수를 다 썼어요. 아래 입력칸에서 직접 고르거나 규칙 해석을 써 주세요.",
-  daily_total: "오늘 서비스 전체 AI 분석 한도에 도달했어요. 규칙 해석으로 대신할게요.",
+  per_minute: "검색을 너무 자주 했어요. 1분 뒤에 다시 시도해 주세요.",
+  daily_ip: "오늘 문장 검색 횟수를 다 썼어요. 「조건 직접 고르기」로 찾아 주세요.",
+  global_minute: "지금 이용자가 많아요. 간단 해석으로 대신 찾을게요.",
+  global_tokens: "지금 이용자가 많아요. 간단 해석으로 대신 찾을게요.",
+  cooldown: "지금 이용자가 많아요. 간단 해석으로 대신 찾을게요.",
+  daily_total: "오늘 문장 검색 한도에 도달했어요. 간단 해석으로 대신 찾을게요.",
 };
 
 // ── Gemini 호출 ──────────────────────────────────────────────
@@ -112,6 +175,7 @@ async function callGemini(text, key, fetchImpl = fetch) {
             temperature: 0,
             responseMimeType: "application/json",
             responseSchema: SCHEMA,
+            maxOutputTokens: LIMITS.maxOutputTokens,
           },
         }),
         signal: ctrl.signal,
@@ -121,8 +185,9 @@ async function callGemini(text, key, fetchImpl = fetch) {
     if (!res.ok) return { error: "gemini_http_" + res.status };
     const data = await res.json();
     const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!raw) return { error: "gemini_empty" };
-    return { fields: sanitize(JSON.parse(raw)) };
+    const tokens = data?.usageMetadata?.totalTokenCount;
+    if (!raw) return { error: "gemini_empty", tokens };
+    return { fields: sanitize(JSON.parse(raw)), tokens };
   } catch (e) {
     return { error: e.name === "AbortError" ? "gemini_timeout" : "gemini_failed" };
   } finally {
@@ -147,7 +212,7 @@ function sanitize(o) {
 
 const ERROR_MESSAGES = {
   no_key: "AI 키가 아직 설정되지 않았어요. 규칙 해석으로 대신할게요.",
-  gemini_quota: "Gemini 사용 한도에 도달했어요. 규칙 해석으로 대신할게요.",
+  gemini_quota: "지금 이용자가 많아요. 간단 해석으로 대신 찾을게요.",
   gemini_timeout: "AI 응답이 늦어요. 규칙 해석으로 대신할게요.",
 };
 
@@ -170,9 +235,11 @@ async function readBody(req) {
 
 async function handler(req, res, deps = {}) {
   res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   if (req.method === "OPTIONS") return send(res, 204, {});
+  const ip = String(req.headers?.["x-forwarded-for"] || req.socket?.remoteAddress || "unknown").split(",")[0].trim();
+  if (req.method === "GET") return send(res, 200, { ok: true, model: MODEL, limits: limitStatus(Date.now(), ip) }); // 화면의 「검색 제한」
   if (req.method !== "POST") return send(res, 405, { ok: false, error: "method", message: "POST만 받아요." });
 
   let body;
@@ -189,17 +256,20 @@ async function handler(req, res, deps = {}) {
   const key = deps.key ?? process.env.GEMINI_API_KEY;
   if (!key) return send(res, 503, { ok: false, error: "no_key", message: ERROR_MESSAGES.no_key });
 
-  const ip = String(req.headers?.["x-forwarded-for"] || req.socket?.remoteAddress || "unknown").split(",")[0].trim();
-  const limited = checkLimit(ip);
-  if (limited) return send(res, 429, { ok: false, error: limited, message: LIMIT_MESSAGES[limited] });
+  const allowed = checkLimit(ip, text);
+  if (typeof allowed === "string")
+    return send(res, 429, { ok: false, error: allowed, message: LIMIT_MESSAGES[allowed], limits: limitStatus(Date.now(), ip) });
 
   const out = await callGemini(text, key, deps.fetch);
+  recordTokens(allowed.entry, out.tokens);
+  if (out.error === "gemini_quota") startCooldown();
   if (out.error) {
     const msg = ERROR_MESSAGES[out.error] || "AI 분석에 실패했어요. 규칙 해석으로 대신할게요.";
-    return send(res, out.error === "gemini_quota" ? 429 : 502, { ok: false, error: out.error, message: msg });
+    return send(res, out.error === "gemini_quota" ? 429 : 502,
+      { ok: false, error: out.error, message: msg, limits: limitStatus(Date.now(), ip) });
   }
-  return send(res, 200, { ok: true, model: MODEL, fields: out.fields });
+  return send(res, 200, { ok: true, model: MODEL, fields: out.fields, limits: limitStatus(Date.now(), ip) });
 }
 
 module.exports = handler;
-module.exports._test = { checkLimit, sanitize, usage, LIMITS };
+module.exports._test = { checkLimit, recordTokens, startCooldown, limitStatus, estimateTokens, sanitize, usage, LIMITS };
