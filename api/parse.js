@@ -28,9 +28,26 @@
 //   MAX_OUTPUT_TOKENS       한 번 답의 최대 토큰.        기본 256     (조건 JSON은 100토큰 안팎)
 //   한도를 바꾸면(유료 전환 등) 위 숫자를 Vercel 환경 변수로 덮어쓰고 Redeploy 하면 돼요.
 //
-// 주의: 아래 제한은 함수 인스턴스 메모리에 저장하는 "최소한의 방어"예요. Vercel이 인스턴스를
-// 새로 띄우거나 여러 개 띄우면 숫자가 나뉘거나 초기화될 수 있어요. 그래서 Google이 429(한도 초과)를
-// 주면 1분 동안 Gemini 호출을 멈추고 규칙 해석으로 대신해요. 정확히 세려면 Upstash Redis 같은 저장소를 붙여요.
+// 사용량 저장소 (11/14 Redis 연동)
+//   KV_REST_API_URL / KV_REST_API_TOKEN          Vercel Marketplace의 Upstash Redis를 연결하면 자동으로 생김
+//   (또는 UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN — Upstash에서 직접 만든 경우)
+//   REDIS_KEY_PREFIX   선택. Redis 키 앞부분. 기본 "safehome" (같은 Redis를 다른 프로젝트와 나눠 쓸 때 바꿈)
+//   REDIS_REQUIRED     선택. "1"이면 Redis 설정이 없을 때도 Gemini를 부르지 않음(운영에서 Redis가 꼭 있어야 할 때)
+//
+//   - Redis가 설정돼 있으면: 모든 함수 인스턴스가 같은 카운터를 써요. 검사와 증가는 Lua 스크립트 하나로
+//     원자적으로 해서 동시에 요청이 와도 한도를 넘지 않아요. Google 429 뒤 1분 쉼(cooldown)도 Redis에 둬서
+//     모든 인스턴스가 함께 쉬어요(Google 한도는 키 하나에 걸리므로 공유해야 함).
+//   - Redis 오류·지연(2초)이면 Gemini를 부르지 않고 429 {error:"limit_unavailable"}로 답해요.
+//     화면은 기존처럼 규칙 해석으로 대신해요(안전하게 막힘).
+//   - Redis 설정이 아예 없으면(연결 전): 예전처럼 인스턴스 메모리로 세요. 연결 전에 배포돼도 사이트가 멈추지 않게.
+//   응답 헤더 X-RateLimit-Store: redis | memory 로 지금 어느 쪽인지 확인할 수 있어요(비밀 값은 안 보임).
+//
+// Redis 키 (모두 만료가 있어 저절로 지워짐, 날짜는 한국 시간 기준)
+//   {prefix}:day:{YYYY-MM-DD}:total        하루 전체 호출 수     — 2일 뒤 만료 (날짜가 바뀌면 새 키 = 자정 초기화)
+//   {prefix}:day:{YYYY-MM-DD}:ip:{해시}     하루 IP별 호출 수     — 2일 뒤 만료 (IP는 SHA-256 해시로만 저장)
+//   {prefix}:min:global / :min:ip:{해시}    최근 60초 호출 시각   — 2분 뒤 만료, 60초 지난 기록은 매번 정리
+//   {prefix}:min:tok / :min:tokn           최근 60초 토큰(시각·양) — 2분 뒤 만료
+//   {prefix}:cooldown                      Google 429 뒤 60초 쉼 — 60초 뒤 만료
 
 const MODEL = process.env.GEMINI_MODEL || "gemini-3.5-flash-lite";
 const MAX_CHARS = 200;
@@ -54,7 +71,7 @@ const KINDS = ["원룸", "투룸", "오피스텔"];
 const OPTIONS = ["세탁기", "냉장고", "에어컨", "인덕션", "침대", "책상"];
 const FACTORS = ["가격", "거리", "관리비", "넓이", "채광", "옵션", "조용함"];
 
-// ── 호출 제한 (인스턴스 메모리) ──────────────────────────────
+// ── 호출 제한 (인스턴스 메모리) — Redis 설정이 없을 때만 씀 ───────────
 const usage = { day: "", total: 0, ips: new Map(), recent: [], tokens: [], blockedUntil: 0 };
 
 function today(now = Date.now()) {
@@ -129,6 +146,143 @@ function limitStatus(now = Date.now(), ip = null) {
   };
 }
 
+// ── 호출 제한 (Redis, 여러 인스턴스 공유) ─────────────────────────
+const crypto = require("crypto");
+const WINDOW_MS = 60_000;
+const DAY_TTL_SEC = 2 * 24 * 3600;
+const MINUTE_TTL_MS = 120_000;
+const REDIS_TIMEOUT_MS = 2000;
+
+function redisConfig(e = process.env) {
+  const url = e.KV_REST_API_URL || e.UPSTASH_REDIS_REST_URL;
+  const token = e.KV_REST_API_TOKEN || e.UPSTASH_REDIS_REST_TOKEN;
+  return url && token ? { url: url.replace(/\/+$/, ""), token, prefix: e.REDIS_KEY_PREFIX || "safehome" } : null;
+}
+
+function ipHash(ip) {
+  return crypto.createHash("sha256").update(String(ip)).digest("hex").slice(0, 20);
+}
+
+function redisKeys(prefix, ip, now) {
+  const d = today(now);
+  const h = ipHash(ip);
+  return [
+    `${prefix}:cooldown`, `${prefix}:day:${d}:total`, `${prefix}:day:${d}:ip:${h}`,
+    `${prefix}:min:global`, `${prefix}:min:ip:${h}`, `${prefix}:min:tok`, `${prefix}:min:tokn`,
+  ];
+}
+
+// 검사 + 증가를 한 번에 (Redis는 Lua 스크립트를 한 번에 하나씩 실행하므로 동시 요청에도 한도를 넘지 않음)
+// 확인 순서는 메모리 방식과 같음: cooldown → 하루 전체 → 분당 전체 → 분당 토큰 → 하루 IP → 분당 IP
+const ACQUIRE_LUA = `
+local now = tonumber(ARGV[1])
+local cut = now - tonumber(ARGV[2])
+if redis.call('EXISTS', KEYS[1]) == 1 then return {'cooldown'} end
+redis.call('ZREMRANGEBYSCORE', KEYS[4], '-inf', cut)
+redis.call('ZREMRANGEBYSCORE', KEYS[5], '-inf', cut)
+local old = redis.call('ZRANGEBYSCORE', KEYS[6], '-inf', cut)
+for _, m in ipairs(old) do redis.call('HDEL', KEYS[7], m) end
+redis.call('ZREMRANGEBYSCORE', KEYS[6], '-inf', cut)
+if tonumber(redis.call('GET', KEYS[2]) or '0') >= tonumber(ARGV[3]) then return {'daily_total'} end
+if redis.call('ZCARD', KEYS[4]) >= tonumber(ARGV[4]) then return {'global_minute'} end
+local used = 0
+for _, v in ipairs(redis.call('HVALS', KEYS[7])) do used = used + tonumber(v) end
+if used + tonumber(ARGV[9]) > tonumber(ARGV[5]) then return {'global_tokens'} end
+if tonumber(redis.call('GET', KEYS[3]) or '0') >= tonumber(ARGV[6]) then return {'daily_ip'} end
+if redis.call('ZCARD', KEYS[5]) >= tonumber(ARGV[7]) then return {'per_minute'} end
+redis.call('INCR', KEYS[2]); redis.call('EXPIRE', KEYS[2], tonumber(ARGV[11]))
+redis.call('INCR', KEYS[3]); redis.call('EXPIRE', KEYS[3], tonumber(ARGV[11]))
+redis.call('ZADD', KEYS[4], now, ARGV[8]); redis.call('PEXPIRE', KEYS[4], tonumber(ARGV[12]))
+redis.call('ZADD', KEYS[5], now, ARGV[8]); redis.call('PEXPIRE', KEYS[5], tonumber(ARGV[12]))
+redis.call('ZADD', KEYS[6], now, ARGV[8]); redis.call('PEXPIRE', KEYS[6], tonumber(ARGV[12]))
+redis.call('HSET', KEYS[7], ARGV[8], ARGV[9]); redis.call('PEXPIRE', KEYS[7], tonumber(ARGV[12]))
+return {'ok', ARGV[10]}
+`;
+
+// Gemini가 알려 준 실제 토큰 수로 고침 (60초가 지나 이미 정리됐으면 그대로 둠)
+const TOKENS_LUA = `
+if redis.call('HEXISTS', KEYS[1], ARGV[1]) == 1 then redis.call('HSET', KEYS[1], ARGV[1], ARGV[2]) end
+return 1
+`;
+
+// 화면의 「검색 제한」 숫자 (읽기만 함)
+const STATUS_LUA = `
+local cut = tonumber(ARGV[1]) - tonumber(ARGV[2])
+local used = 0
+local ids = redis.call('ZRANGEBYSCORE', KEYS[6], '(' .. cut, '+inf')
+for _, m in ipairs(ids) do used = used + tonumber(redis.call('HGET', KEYS[7], m) or '0') end
+return {
+  tonumber(redis.call('GET', KEYS[2]) or '0'), tonumber(redis.call('GET', KEYS[3]) or '0'),
+  redis.call('ZCOUNT', KEYS[4], '(' .. cut, '+inf'), redis.call('ZCOUNT', KEYS[5], '(' .. cut, '+inf'),
+  used, redis.call('PTTL', KEYS[1])
+}
+`;
+
+async function redisCall(cfg, command, fetchImpl = fetch) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), REDIS_TIMEOUT_MS);
+  try {
+    const res = await fetchImpl(cfg.url, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${cfg.token}`, "Content-Type": "application/json" },
+      body: JSON.stringify(command),
+      signal: ctrl.signal,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.error !== undefined) throw new Error("redis_error"); // 비밀 값·응답 내용은 남기지 않음
+    return data.result;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+const redisLimiter = {
+  async check(cfg, ip, text, now, task, fetchImpl) {
+    const id = crypto.randomUUID();
+    const est = estimateTokens(text, task);
+    const r = await redisCall(cfg, ["EVAL", ACQUIRE_LUA, "7", ...redisKeys(cfg.prefix, ip, now),
+      String(now), String(WINDOW_MS), String(LIMITS.perDayTotal), String(LIMITS.globalPerMinute),
+      String(LIMITS.tokensPerMinute), String(LIMITS.perDayIp), String(LIMITS.perMinute), id, String(est),
+      today(now), String(DAY_TTL_SEC), String(MINUTE_TTL_MS)], fetchImpl);
+    if (!Array.isArray(r)) throw new Error("redis_error");
+    return r[0] === "ok" ? { entry: { id, now, ip } } : String(r[0]);
+  },
+  async record(cfg, entry, actual, fetchImpl) {
+    if (!entry || !Number.isFinite(actual) || actual <= 0) return;
+    const keys = redisKeys(cfg.prefix, entry.ip, entry.now);
+    await redisCall(cfg, ["EVAL", TOKENS_LUA, "1", keys[6], entry.id, String(Math.round(actual))], fetchImpl);
+  },
+  async cooldown(cfg, fetchImpl) {
+    await redisCall(cfg, ["SET", `${cfg.prefix}:cooldown`, "1", "PX", String(LIMITS.cooldownMs)], fetchImpl);
+  },
+  async status(cfg, ip, now, fetchImpl) {
+    const r = await redisCall(cfg, ["EVAL", STATUS_LUA, "7", ...redisKeys(cfg.prefix, ip, now),
+      String(now), String(WINDOW_MS)], fetchImpl);
+    const [total, mine, minute, myMinute, tokens, pttl] = (r || []).map(Number);
+    return {
+      my_today_used: mine || 0,
+      my_today_limit: LIMITS.perDayIp,
+      my_minute_used: myMinute || 0,
+      my_minute_limit: LIMITS.perMinute,
+      today_used: total || 0,
+      today_limit: LIMITS.perDayTotal,
+      minute_used: minute || 0,
+      minute_limit: LIMITS.globalPerMinute,
+      minute_tokens: tokens || 0,
+      token_limit: LIMITS.tokensPerMinute,
+      cooldown_sec: pttl > 0 ? Math.ceil(pttl / 1000) : 0,
+    };
+  },
+};
+
+// 메모리 방식도 같은 모양으로 감싼다 (Redis 연결 전·로컬 테스트용)
+const memoryLimiter = {
+  async check(cfg, ip, text, now, task) { return checkLimit(ip, text, now, task); },
+  async record(cfg, entry, actual) { recordTokens(entry, actual); },
+  async cooldown(cfg, fetchImpl, now = Date.now()) { startCooldown(now); },
+  async status(cfg, ip, now) { return limitStatus(now, ip); },
+};
+
 const LIMIT_MESSAGES = {
   per_minute: "검색을 너무 자주 했어요. 1분 뒤에 다시 시도해 주세요.",
   daily_ip: "오늘 문장 검색 횟수를 다 썼어요. 「조건 직접 고르기」로 찾아 주세요.",
@@ -136,6 +290,7 @@ const LIMIT_MESSAGES = {
   global_tokens: "지금 이용자가 많아요. 간단 해석으로 대신 찾을게요.",
   cooldown: "지금 이용자가 많아요. 간단 해석으로 대신 찾을게요.",
   daily_total: "오늘 문장 검색 한도에 도달했어요. 간단 해석으로 대신 찾을게요.",
+  limit_unavailable: "지금은 AI 사용량을 확인할 수 없어요. 간단 해석으로 대신 찾을게요.",
 };
 
 // ── Gemini 호출 ──────────────────────────────────────────────
@@ -289,6 +444,30 @@ const ERROR_MESSAGES = {
   gemini_timeout: "AI 응답이 늦어요. 규칙 해석으로 대신할게요.",
 };
 
+// ── Origin 검사 (11/14) ─────────────────────────────────────
+// 다른 웹사이트가 방문자 브라우저를 시켜 이 API(=우리 Gemini 할당량)를 쓰는 것을 막는 장치예요.
+// curl 같은 프로그램은 Origin 헤더를 마음대로 넣을 수 있어서 인증 수단은 아니에요. 남용은 위의 호출 제한이 막아요.
+// 정확히 같은 주소만 허용하고 *.vercel.app 같은 넓은 와일드카드는 쓰지 않아요.
+const DEFAULT_ORIGINS = ["https://woowangthon-team-45.vercel.app"];
+const LOCAL_ORIGIN = /^http:\/\/(localhost|127\.0\.0\.1)(:\d{1,5})?$/;
+
+function allowedOrigins(e = process.env) {
+  const set = new Set(DEFAULT_ORIGINS);
+  for (const name of ["VERCEL_URL", "VERCEL_BRANCH_URL", "VERCEL_PROJECT_PRODUCTION_URL"]) {
+    const host = (e[name] || "").trim();
+    if (host) set.add(host.startsWith("http") ? host.replace(/\/+$/, "") : `https://${host}`);
+  }
+  for (const o of (e.ALLOWED_ORIGINS || "").split(",")) {
+    const v = o.trim().replace(/\/+$/, "");
+    if (v && v !== "*" && !v.includes("*")) set.add(v);
+  }
+  return set;
+}
+
+function originAllowed(origin, e = process.env) {
+  return Boolean(origin) && (allowedOrigins(e).has(origin) || LOCAL_ORIGIN.test(origin));
+}
+
 function send(res, status, body) {
   res.statusCode = status;
   res.setHeader("Content-Type", "application/json; charset=utf-8");
@@ -307,12 +486,38 @@ async function readBody(req) {
 }
 
 async function handler(req, res, deps = {}) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-  if (req.method === "OPTIONS") return send(res, 204, {});
+  const envs = deps.env || process.env;
+  const origin = req.headers?.origin;
+  res.setHeader("Vary", "Origin");
+  const okOrigin = originAllowed(origin, envs);
+  if (okOrigin) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  }
+  const forbidden = () => send(res, 403, { ok: false, error: "origin", message: "허용되지 않은 사이트에서 온 요청이에요." });
+  if (req.method === "OPTIONS") return okOrigin ? send(res, 204, {}) : forbidden();
+  // GET: Origin이 없으면(같은 사이트·주소창) 허용, 다른 사이트 Origin이면 거부
+  // POST: Origin이 반드시 있어야 하고 허용 목록에 있어야 함 (브라우저는 POST에 항상 Origin을 붙임)
+  if (origin && !okOrigin) return forbidden();
+  if (req.method === "POST" && !origin) return forbidden();
+
+  const now = deps.now ? deps.now() : Date.now();
+  const cfg = deps.redis !== undefined ? deps.redis : redisConfig(envs);
+  const required = String(envs.REDIS_REQUIRED || "") === "1";
+  const limiter = cfg ? redisLimiter : memoryLimiter;
+  res.setHeader("X-RateLimit-Store", cfg ? "redis" : "memory");
+  const rf = deps.redisFetch;
   const ip = String(req.headers?.["x-forwarded-for"] || req.socket?.remoteAddress || "unknown").split(",")[0].trim();
-  if (req.method === "GET") return send(res, 200, { ok: true, model: MODEL, limits: limitStatus(Date.now(), ip) }); // 화면의 「검색 제한」
+  const status = async () => {
+    try { return await limiter.status(cfg, ip, deps.now ? deps.now() : Date.now(), rf); } catch { return undefined; }
+  };
+  if (req.method === "GET") {
+    if (!cfg && required) return send(res, 503, { ok: false, error: "limit_unavailable", message: LIMIT_MESSAGES.limit_unavailable });
+    const limits = await status();
+    if (!limits) return send(res, 503, { ok: false, error: "limit_unavailable", message: LIMIT_MESSAGES.limit_unavailable });
+    return send(res, 200, { ok: true, model: MODEL, limits }); // 화면의 「검색 제한」
+  }
   if (req.method !== "POST") return send(res, 405, { ok: false, error: "method", message: "POST만 받아요." });
 
   let body;
@@ -342,22 +547,35 @@ async function handler(req, res, deps = {}) {
   const key = deps.key ?? process.env.GEMINI_API_KEY;
   if (!key) return send(res, 503, { ok: false, error: "no_key", message: ERROR_MESSAGES.no_key });
 
-  const allowed = checkLimit(ip, text, Date.now(), task);
+  // 사용량 저장소를 확인할 수 없으면 Gemini를 부르지 않는다 (제한 없이 부르는 일이 없게)
+  const unavailable = () => send(res, 429, { ok: false, error: "limit_unavailable", message: LIMIT_MESSAGES.limit_unavailable });
+  if (!cfg && required) return unavailable();
+  let allowed;
+  try {
+    allowed = await limiter.check(cfg, ip, text, now, task, rf);
+  } catch {
+    return unavailable();
+  }
   if (typeof allowed === "string")
-    return send(res, 429, { ok: false, error: allowed, message: LIMIT_MESSAGES[allowed], limits: limitStatus(Date.now(), ip) });
+    return send(res, 429, { ok: false, error: allowed, message: LIMIT_MESSAGES[allowed], limits: await status() });
 
   const out = await callGemini(text, key, deps.fetch, task, clauses);
-  recordTokens(allowed.entry, out.tokens);
-  if (out.error === "gemini_quota") startCooldown();
+  try {
+    await limiter.record(cfg, allowed.entry, out.tokens, rf);
+    if (out.error === "gemini_quota") await limiter.cooldown(cfg, rf, deps.now ? deps.now() : Date.now());
+  } catch {
+    // 기록 실패는 응답을 막지 않음 (다음 요청의 검사에서 Redis 장애면 다시 막힘)
+  }
   if (out.error) {
     const msg = ERROR_MESSAGES[out.error] || "AI 분석에 실패했어요. 규칙 해석으로 대신할게요.";
     return send(res, out.error === "gemini_quota" ? 429 : 502,
-      { ok: false, error: out.error, message: msg, limits: limitStatus(Date.now(), ip) });
+      { ok: false, error: out.error, message: msg, limits: await status() });
   }
-  const limits = limitStatus(Date.now(), ip);
+  const limits = await status();
   if (task === "specials") return send(res, 200, { ok: true, model: MODEL, items: out.items, limits });
   return send(res, 200, { ok: true, model: MODEL, fields: out.fields, limits });
 }
 
 module.exports = handler;
-module.exports._test = { checkLimit, recordTokens, startCooldown, limitStatus, estimateTokens, sanitize, sanitizeSpecials, usage, LIMITS, TASKS };
+module.exports._test = { checkLimit, recordTokens, startCooldown, limitStatus, estimateTokens, sanitize, sanitizeSpecials, usage, LIMITS, TASKS,
+  redisConfig, redisLimiter, originAllowed, allowedOrigins, ipHash };

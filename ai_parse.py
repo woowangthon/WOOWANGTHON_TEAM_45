@@ -91,8 +91,10 @@ def _post_local(url, payload):
     import urllib.error
     import urllib.request
 
+    # 서버가 Origin 없는 POST를 막아서(11/14), 로컬 streamlit 주소를 Origin으로 붙인다 (localhost는 허용 목록에 있음)
+    origin = os.environ.get("SAFEHOME_ORIGIN", "http://localhost:8501")
     req = urllib.request.Request(url, data=json.dumps(payload).encode(), method="POST",
-                                 headers={"Content-Type": "application/json"})
+                                 headers={"Content-Type": "application/json", "Origin": origin})
     try:
         with urllib.request.urlopen(req, timeout=20) as r:
             return r.status, r.read().decode("utf-8")
