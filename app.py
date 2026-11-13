@@ -304,6 +304,22 @@ def limit_box():
                       else "서버 사용량을 불러오지 못해 이 화면 기준만 보여요."))
 
 
+def explain_specials(ai_key, sentences):
+    """「AI로 특약 설명 듣기」: Gemini 1회. 실패해도 규칙 결과는 그대로 보여 준다 (11/13)."""
+    st.session_state.ai_calls += 1
+    items, message = ai_parse.request_specials(sentences)
+    st.session_state[ai_key] = dict(items=items, message=message)
+    st.session_state.limits = ai_parse.last_limits or st.session_state.limits
+
+
+def links(sources, prefix="근거"):
+    if not sources:
+        return ""
+    return (f'<div class="sh-muted">{prefix}: '
+            + " · ".join(f'<a href="{html.escape(u)}" target="_blank">{html.escape(t)}</a>' for t, u in sources)
+            + "</div>")
+
+
 def open_contract(listing_id):
     st.session_state.sel_listing = listing_id
     go(3)
@@ -561,7 +577,10 @@ else:
     contract_text = contracts[lid]
     registry_text = registries[lid]
 
-    res = cc.check(contract_text, registry_text)
+    ai_key = f"ai_{lid}_{hash(contract_text)}"
+    ai_state = st.session_state.get(ai_key)  # dict(items=..., message=...) 또는 None
+    res = cc.check(contract_text, registry_text, kind=row["kind"], ai_items=(ai_state or {}).get("items"))
+    todo = [ck for ck in res["checklist"] if not st.session_state.get(f"ck_{lid}_{ck['key']}")]
     hl = cc.highlights(res)
     note_status = {n["no"]: n["status"] for n in hl["notes"]}
     flags = cc.count_flags(res)
@@ -581,7 +600,10 @@ else:
         summary.append(f"확인 필요 {flags[cc.UNKNOWN]}곳")
     st.markdown(f'<div class="sh-verdict" style="background:{bg};border-left:4px solid {color}">'
                 f'{html.escape(ov["label"])}'
-                f'{" · " + " · ".join(summary) if summary else ""}</div>', unsafe_allow_html=True)
+                f'{" · " + " · ".join(summary) if summary else ""}'
+                f'<div class="sh-muted" style="font-weight:400;margin-top:4px">가상 계약서·등기 문서를 분석한 결과예요. '
+                f'실제 서류·현장 {len(todo)}개는 아직 미확인이라, 이 결과가 계약 전체의 안전을 보장하지 않아요.</div></div>',
+                unsafe_allow_html=True)
 
     with st.expander("🧊 3D로 방 둘러보기", expanded=True):
         if room_3d():
@@ -590,36 +612,84 @@ else:
         else:
             st.caption("3D 모델 파일(assets/room_scan.glb)을 찾지 못했어요.")
 
-    d1, d2 = st.columns(2)
-    with d1:
-        st.markdown("**계약서**")
-        st.markdown(doc_html(contract_text, hl["marks"]["contract"], note_status), unsafe_allow_html=True)
-    with d2:
-        st.markdown("**등기부 요약**")
-        st.markdown(doc_html(registry_text, hl["marks"]["registry"], note_status), unsafe_allow_html=True)
+    tab_result, tab_check = st.tabs(["분석 결과 (계약서·등기)", f"직접 확인할 것 ({len(todo)}개 미확인)"])
 
-    st.markdown("#### 계약 전에 짚어 볼 내용")
-    if not hl["notes"]:
-        st.markdown("계약서와 등기에서 위험·주의로 표시할 부분이 없어요. 계약 당일 최신 등기부등본은 한 번 더 확인하세요.")
-    for n in hl["notes"]:
-        label, color, bg = TONE[n["status"]]
-        with st.container(border=True, key=f"note_{n['no']}"):
-            st.markdown(f'<span class="sh-no" style="background:{color};margin-left:0">{n["no"]}</span> '
-                        f'{badge(n["status"])}<b>{html.escape(n["title"])}</b>', unsafe_allow_html=True)
-            st.markdown(html.escape(n["detail"]))
-            if n["question"]:
-                st.markdown(f'<div class="sh-muted">물어볼 것: {html.escape(n["question"])}</div>',
-                            unsafe_allow_html=True)
+    with tab_result:
+        d1, d2 = st.columns(2)
+        with d1:
+            st.markdown("**계약서**")
+            st.markdown(doc_html(contract_text, hl["marks"]["contract"], note_status), unsafe_allow_html=True)
+        with d2:
+            st.markdown("**등기부 요약**")
+            st.markdown(doc_html(registry_text, hl["marks"]["registry"], note_status), unsafe_allow_html=True)
 
-    unknown = [i for i in res["items"] if i["status"] == cc.UNKNOWN]
-    ok = [i["name"] for i in res["items"] if i["status"] == cc.OK]
-    if unknown:
-        st.markdown("#### 직접 확인이 필요한 것 (문서에 없거나 규칙으로 판단하지 못함)")
-        for i in unknown:
-            st.markdown(f"- **{i['name']}** · {i['detail']}")
-    if ok:
-        st.markdown(f'<div class="sh-muted" style="margin-top:8px">문제없는 항목: {html.escape(", ".join(ok))}</div>',
-                    unsafe_allow_html=True)
+        st.markdown("#### 계약 전에 짚어 볼 내용")
+        specials = res["items_by_key"]["special"].get("specials", [])
+        if specials:
+            done = bool(ai_state and ai_state.get("items"))  # 실패했으면 다시 누를 수 있게
+            label = "AI 설명을 받았어요" if done else ("AI 설명 다시 시도" if ai_state else "AI로 특약 설명 듣기")
+            st.button(label, key=f"aibtn_{ai_key}",
+                      disabled=done or st.session_state.ai_calls >= ai_parse.SESSION_LIMIT,
+                      on_click=explain_specials, args=(ai_key, [s["sentence"] for s in specials]))
+            if ai_state and ai_state.get("message"):
+                st.caption(ai_state["message"])
+            elif not ai_state:
+                st.caption("Gemini가 특약을 쉬운 말로 풀어 주고 물어볼 질문을 만들어요. 판정은 규칙이 하고 AI는 바꾸지 않아요.")
+        if not hl["notes"]:
+            st.markdown("계약서와 등기에서 위험·주의로 표시할 부분이 없어요. 계약 당일 최신 등기부등본은 한 번 더 확인하세요.")
+        for n in hl["notes"]:
+            label, color, bg = TONE[n["status"]]
+            with st.container(border=True, key=f"note_{n['no']}"):
+                st.markdown(f'<span class="sh-no" style="background:{color};margin-left:0">{n["no"]}</span> '
+                            f'{badge(n["status"])}<b>{html.escape(n["title"])}</b>', unsafe_allow_html=True)
+                if n.get("sentence"):
+                    st.markdown(f'<div class="sh-muted">원문: “{html.escape(n["sentence"])}”</div>',
+                                unsafe_allow_html=True)
+                st.markdown(html.escape(n["detail"]))
+                ai = n.get("ai")
+                if ai and n.get("by") != "AI":
+                    quote = f' (“{html.escape(ai["quote"])}”)' if ai["quote"] else ""
+                    st.markdown(f'<div style="margin-top:4px"><b>AI 설명</b>{quote}: {html.escape(ai["explain"])}</div>',
+                                unsafe_allow_html=True)
+                if n["question"]:
+                    st.markdown(f'<div class="sh-muted">물어볼 것: {html.escape(n["question"])}</div>',
+                                unsafe_allow_html=True)
+                if ai and ai["question"] and ai["question"] != n["question"]:
+                    st.markdown(f'<div class="sh-muted">AI가 제안한 질문: {html.escape(ai["question"])}</div>',
+                                unsafe_allow_html=True)
+                st.markdown(links(n.get("sources")), unsafe_allow_html=True)
+        if specials:
+            st.caption("AI 설명은 참고용이에요. AI는 '정상'을 '확인 필요'로 올리기만 할 수 있고, 법률 자문이 아니에요.")
+
+        unknown = [i for i in res["items"] if i["status"] == cc.UNKNOWN]
+        ok = [i["name"] for i in res["items"] if i["status"] == cc.OK]
+        if unknown:
+            st.markdown("#### 직접 확인이 필요한 것 (문서에 없거나 규칙으로 판단하지 못함)")
+            for i in unknown:
+                st.markdown(f"- **{i['name']}** · {i['detail']}")
+        if ok:
+            st.markdown(f'<div class="sh-muted" style="margin-top:8px">문제없는 항목: {html.escape(", ".join(ok))}</div>',
+                        unsafe_allow_html=True)
+
+    with tab_check:
+        st.caption("분석은 가상 문서를 본 결과예요. 실제 계약에서는 아래 서류·현장을 직접 확인해야 하고, "
+                   "확인하기 전까지는 미확인으로 남아요. 확인했으면 체크해 두세요(이 화면에서만 기억해요).")
+        for ck in res["checklist"]:
+            checked = st.session_state.get(f"ck_{lid}_{ck['key']}", False)
+            status = cc.SELF_CHECKED if checked else cc.UNCHECKED
+            head = f"{'✓ ' if checked else ''}{ck['title']} · {status}" + (" · 꼭 확인" if ck["important"] and not checked else "")
+            with st.expander(head, expanded=ck["important"] and not checked):
+                st.markdown(ck["why"])
+                if ck["hint"]:
+                    st.markdown(f'<div class="sh-muted">문서에서 본 것: {html.escape(ck["hint"])}</div>',
+                                unsafe_allow_html=True)
+                st.markdown("\n".join(f"- {h}" for h in ck["how"]))
+                st.markdown(f'<div class="sh-muted">어디서: {html.escape(ck["where"])}</div>', unsafe_allow_html=True)
+                if ck.get("ask"):
+                    st.markdown(f'<div class="sh-muted">요청할 것: {html.escape(ck["ask"])}</div>', unsafe_allow_html=True)
+                st.markdown(links(ck["sources"]), unsafe_allow_html=True)
+                st.markdown(links(ck["cases"], "실제 사례 (참고용, 사기 판단 근거 아님)"), unsafe_allow_html=True)
+                st.checkbox("직접 확인했어요", key=f"ck_{lid}_{ck['key']}")
 
 
 

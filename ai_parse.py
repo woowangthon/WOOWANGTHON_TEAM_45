@@ -120,3 +120,41 @@ def request_parse(text, post=None):
     if status == 200 and data.get("ok") and isinstance(data.get("fields"), dict):
         return data["fields"], None
     return None, data.get("message") or f"AI 분석에 실패했어요(코드 {status}). 규칙 해석으로 대신할게요."
+
+
+MAX_CLAUSES = 8
+SPECIALS_FALLBACK = "AI 설명을 받지 못했어요{why}. 규칙 결과와 미리 써 둔 설명·질문으로 보여 드려요."
+
+
+def request_specials(clauses, post=None):
+    """특약 문장들을 Gemini에 보내 쉬운 설명·질문을 받는다 (11/13 회의).
+
+    반환: ({특약 번호: 설명 dict} 또는 None, 안내 문구 또는 None). 실패하면 화면은 규칙 결과로 대신한다.
+    """
+    clauses = [c.strip() for c in (clauses or []) if isinstance(c, str) and c.strip()]
+    if not clauses:
+        return None, "설명할 특약이 없어요."
+    if len(clauses) > MAX_CLAUSES or any(len(c) > MAX_CHARS for c in clauses):
+        return None, SPECIALS_FALLBACK.format(why=f"(특약은 {MAX_CLAUSES}개, 문장마다 {MAX_CHARS}자까지)")
+    url = api_url()
+    if not url:
+        return None, SPECIALS_FALLBACK.format(why="(AI 연결 주소 없음)")
+    if post is None:
+        post = _post_browser if sys.platform == "emscripten" else _post_local
+    try:
+        status, body = post(url, {"task": "specials", "clauses": clauses})
+        data = json.loads(body) if body else {}
+    except Exception:
+        return None, SPECIALS_FALLBACK.format(why="(서버 연결 실패)")
+    _remember_limits(data)
+    if status == 200 and data.get("ok") and isinstance(data.get("items"), list):
+        out = {}
+        for it in data["items"]:
+            i = it.get("index") if isinstance(it, dict) else None
+            if isinstance(i, int) and not isinstance(i, bool) and 0 <= i < len(clauses) and i not in out:
+                out[i] = it
+        if out:
+            return out, None
+        return None, SPECIALS_FALLBACK.format(why="(쓸 수 있는 답이 없음)")
+    why = {429: "(지금 이용자가 많음)", 503: "(AI 키 미설정)"}.get(status, f"(코드 {status})")
+    return None, SPECIALS_FALLBACK.format(why=why)

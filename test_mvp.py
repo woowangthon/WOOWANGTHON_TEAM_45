@@ -151,7 +151,8 @@ def test_highlights(rows, docs, regs):
     for r in rows:
         res = cc.check(docs[r["id"]], regs[r["id"]])
         h = cc.highlights(res)
-        flagged = [i for i in res["items"] if i["status"] in (cc.RISK, cc.CAUTION)]
+        flagged = [i for i in res["items"] if i["status"] in (cc.RISK, cc.CAUTION)] + \
+            [x for i in res["items"] for x in i.get("specials", []) if x["status"] == cc.UNKNOWN]  # 11/13: 모르는 특약도 표시
         assert (len(h["notes"]) > 0) == bool(flagged), (r["case_id"], h["notes"])
         used = set()
         for doc, text in (("contract", docs[r["id"]]), ("registry", regs[r["id"]])):
@@ -164,6 +165,60 @@ def test_highlights(rows, docs, regs):
     e = next(r for r in rows if r["case_id"] == "E")
     h = cc.highlights(cc.check(docs[e["id"]], regs[e["id"]]))
     print("\n[7] 계약서 위험 줄 표시 (사례 E):", " / ".join(f"{n['no']}. {n['title']}" for n in h["notes"]))
+
+
+def test_meeting_1113(rows, docs, regs):
+    """11/13 회의 태스크: 직접 확인 체크리스트(미확인)·근거 연결·모르는 특약 AI 설명과 오류 시 대체."""
+    # 1) 분석 결과와 별도로 직접 확인할 체크리스트가 있고, 모두 '미확인'에서 시작
+    one = next(r for r in rows if r["kind"] == "원룸")
+    off = next(r for r in rows if r["kind"] == "오피스텔")
+    agent = next(r for r in rows if r["case_id"] == "I")
+    for r in (one, off, agent):
+        res = cc.check(docs[r["id"]], regs[r["id"]], kind=r["kind"])
+        assert res["checklist"] and all(c["status"] == cc.UNCHECKED for c in res["checklist"])
+    ck = lambda r: {c["key"]: c for c in cc.check(docs[r["id"]], regs[r["id"]], kind=r["kind"])["checklist"]}
+    assert ck(one)["prior"]["important"] and not ck(off)["prior"]["important"]
+    assert "agent" in ck(agent) and "agent" not in ck(one)
+    # 기존 분석·종합 판정은 그대로 (체크리스트를 더해도 판정이 바뀌지 않음)
+    for r in rows:
+        assert cc.check(docs[r["id"]], regs[r["id"]], kind=r["kind"])["overall"] == cc.check(docs[r["id"]], regs[r["id"]])["overall"]
+
+    # 2) 근거 연결: 위험·주의 특약과 등기 항목에 법령 링크
+    e = next(r for r in rows if r["case_id"] == "E")
+    res = cc.check(docs[e["id"]], regs[e["id"]])
+    assert all(s["sources"] for s in res["items_by_key"]["special"]["specials"] if s["status"] == cc.RISK)
+    assert res["items_by_key"]["trust"]["sources"] and res["items_by_key"]["tax"]["sources"]
+
+    # 3) 모르는 특약: 확인 필요 + 미리 써 둔 질문, 화면 번호 표시
+    d = next(r for r in rows if r["case_id"] == "D")
+    res = cc.check(docs[d["id"]], regs[d["id"]])
+    sp = res["items_by_key"]["special"]["specials"]
+    assert sp and all(s["status"] == cc.UNKNOWN and s["question"] for s in sp)
+    assert any(n["title"].startswith("특약") for n in cc.highlights(res)["notes"])
+
+    # 4) Gemini 설명: 검사·병합, 판정은 못 낮춤, 실패하면 규칙 결과 그대로
+    good = {0: dict(concern=True, category="생활 규칙", quote="반려동물", explain="반려동물을 키울 수 없다는 뜻이에요.",
+                    question="이미 키우는 경우 어떻게 되나요?")}
+    res2 = cc.check(docs[d["id"]], regs[d["id"]], ai_items=good)
+    assert res2["items_by_key"]["special"]["specials"][0]["ai"]["quote"] == "반려동물"
+    assert res2["overall"] == res["overall"]
+    bad = {0: dict(concern=False, category="x", quote="없는 말", explain="이 특약은 무효입니다.", question="")}
+    assert "ai" not in cc.check(docs[d["id"]], regs[d["id"]], ai_items=bad)["items_by_key"]["special"]["specials"][0]
+    c = next(r for r in rows if r["case_id"] == "C")
+    lower = {0: dict(concern=False, category="기타", quote="", explain="평범한 문장이에요.", question="")}
+    specials_c = cc.check(docs[c["id"]], regs[c["id"]])["items_by_key"]["special"]["specials"]
+    worst_before = [s["status"] for s in specials_c]
+    after = [s["status"] for s in cc.check(docs[c["id"]], regs[c["id"]], ai_items=lower)["items_by_key"]["special"]["specials"]]
+    assert worst_before == after, "AI는 판정을 낮추지 못함"
+    ai_parse.os.environ["SAFEHOME_API_URL"] = "https://example.test/api/parse"
+    items, msg = ai_parse.request_specials(["반려동물은 키울 수 없다."],
+                                           post=lambda url, p: (_ for _ in ()).throw(OSError("down")))
+    assert items is None and "규칙" in msg
+    items, msg = ai_parse.request_specials(["반려동물은 키울 수 없다."],
+                                           post=lambda url, p: (200, json.dumps({"ok": True, "items": [good[0] | {"index": 0}]})))
+    assert items and msg is None
+    del ai_parse.os.environ["SAFEHOME_API_URL"]
+    print("\n[13] 11/13 태스크: 체크리스트 미확인 · 근거 연결 · 모르는 특약 확인 필요 · AI 설명 검사/대체 →", msg)
 
 
 def test_limits():
@@ -218,5 +273,6 @@ if __name__ == "__main__":
     test_ai_parse(rows)
     test_highlights(rows, docs, regs)
     test_limits()
+    test_meeting_1113(rows, docs, regs)
     test_review_fixes()
     print("\n모든 테스트 통과 ✅")

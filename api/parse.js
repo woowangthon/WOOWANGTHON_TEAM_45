@@ -1,4 +1,4 @@
-// Safe Home — 자연어 조건 해석 API (Vercel 서버리스 함수)
+// Safe Home — 자연어 조건 해석 + 특약 설명 API (Vercel 서버리스 함수)
 //
 // 11/12 회의 결정:
 //   - Gemini 키는 브라우저가 아니라 이 서버리스 함수에만 둔다 (Vercel 환경 변수 GEMINI_API_KEY).
@@ -6,7 +6,14 @@
 //
 // 요청:  POST /api/parse   {"text": "정문 10분, 월세 40 이하, 세탁기"}
 // 응답:  200 {"ok": true, "fields": {...}}            ← 조건만 돌려줌. 검색·점수는 브라우저의 규칙 코드가 함
-//        4xx/5xx {"ok": false, "error": "...", "message": "화면에 띄울 안내"}
+//
+// 11/13 회의: 특약 설명 (계약 점검 화면의 「AI로 특약 설명 듣기」)
+// 요청:  POST /api/parse   {"task": "specials", "clauses": ["특약 문장", ...]}   (1~8개, 문장마다 200자)
+// 응답:  200 {"ok": true, "items": [{index, concern, category, quote, explain, question}]}
+//        AI는 판정하지 않음. 인용은 원문에 있어야 하고, 안전·효력을 단정하는 설명은 버림
+//
+// 오류:  4xx/5xx {"ok": false, "error": "...", "message": "화면에 띄울 안내"}
+// 두 작업은 같은 호출 제한(아래)을 함께 써요.
 //
 // 환경 변수 (Vercel → Settings → Environment Variables)
 //   GEMINI_API_KEY          필수. Google AI Studio에서 발급
@@ -55,12 +62,13 @@ function today(now = Date.now()) {
   return new Date(now + 9 * 3600 * 1000).toISOString().slice(0, 10);
 }
 
-// 한 번 호출에 쓸 토큰 어림값: 프롬프트+문장 글자 수(한국어는 대략 글자당 1토큰 이하) + 최대 출력
-function estimateTokens(text) {
-  return PROMPT.length + text.length + LIMITS.maxOutputTokens;
+// 한 번 호출에 쓸 토큰 어림값: 프롬프트+입력 글자 수(한국어는 대략 글자당 1토큰 이하) + 최대 출력
+function estimateTokens(text, task = "conditions") {
+  const t = TASKS[task];
+  return t.prompt.length + text.length + t.maxOutputTokens;
 }
 
-function checkLimit(ip, text = "", now = Date.now()) {
+function checkLimit(ip, text = "", now = Date.now(), task = "conditions") {
   const d = today(now);
   if (usage.day !== d) {
     usage.day = d;
@@ -69,7 +77,7 @@ function checkLimit(ip, text = "", now = Date.now()) {
   }
   usage.recent = usage.recent.filter((t) => now - t < 60_000);
   usage.tokens = usage.tokens.filter((e) => now - e.t < 60_000);
-  const est = estimateTokens(text);
+  const est = estimateTokens(text, task);
 
   if (now < usage.blockedUntil) return "cooldown";
   if (usage.total >= LIMITS.perDayTotal) return "daily_total";
@@ -160,7 +168,72 @@ const SCHEMA = {
   required: ["max_rent_manwon", "max_deposit_manwon", "max_walk_min", "gate", "kinds", "options", "priorities"],
 };
 
-async function callGemini(text, key, fetchImpl = fetch) {
+// ── 특약 설명 (11/13 회의: AI는 확인할 문구 후보 + 쉬운 설명 + 질문. 안전·효력은 판단하지 않음) ──
+const MAX_CLAUSES = 8;
+const CATEGORIES = ["전입·주민등록", "보증금 반환", "대출·담보", "수리·관리", "원상복구", "중도 해지·위약금",
+  "관리비·비용", "생활 규칙", "계약 연장·변경", "기타"];
+const SPECIALS_PROMPT = `너는 한국 주택 월세 계약서의 특약을 처음 자취하는 대학생에게 쉽게 설명하는 도우미야.
+아래 번호가 붙은 특약 문장 하나하나에 대해 답해. 규칙:
+- index: 특약 번호 (0부터)
+- concern: 세입자가 계약 전에 확인하거나 물어봐야 할 내용이 있으면 true, 흔한 생활 규칙이거나 세입자를 보호하는 문장이면 false
+- category: 정해진 목록 중 하나
+- quote: 확인이 필요한 부분을 특약 원문에서 글자 그대로 복사 (원문에 없는 글자를 쓰지 말 것, 30자 이내). concern이 false면 빈 문자열
+- explain: 쉬운 한국어 1~2문장. 이 문장이 세입자에게 무슨 뜻인지 설명. "무효다", "불법이다", "사기다", "안전하다", "문제없다"처럼 법적 효력이나 안전을 단정하지 말 것
+- question: 집주인이나 중개사에게 물어볼 질문 1문장. concern이 false면 빈 문자열
+특약:
+`;
+const SPECIALS_SCHEMA = {
+  type: "OBJECT",
+  properties: {
+    items: {
+      type: "ARRAY",
+      items: {
+        type: "OBJECT",
+        properties: {
+          index: { type: "INTEGER" },
+          concern: { type: "BOOLEAN" },
+          category: { type: "STRING", enum: CATEGORIES },
+          quote: { type: "STRING" },
+          explain: { type: "STRING" },
+          question: { type: "STRING" },
+        },
+        required: ["index", "concern", "category", "quote", "explain", "question"],
+      },
+    },
+  },
+  required: ["items"],
+};
+
+// 특약 답 검사: 번호가 맞고, 인용이 원문에 있고, 단정 표현이 없는 것만 남긴다 (브라우저에서 한 번 더 검사)
+const BANNED = /(무효(입니다|이에요|예요|다)|불법(입니다|이에요|이다)|사기(입니다|예요|다)|안전(합니다|해요|하다)|문제(가)?\s*없(습니다|어요|다)|효력이\s*없(습니다|어요|다)|유효(합니다|해요|하다))/;
+function sanitizeSpecials(o, clauses) {
+  const out = [];
+  const seen = new Set();
+  for (const it of Array.isArray(o?.items) ? o.items : []) {
+    const i = it?.index;
+    if (!Number.isInteger(i) || i < 0 || i >= clauses.length || seen.has(i)) continue;
+    const explain = typeof it.explain === "string" ? it.explain.trim().slice(0, 200) : "";
+    if (!explain || BANNED.test(explain)) continue;
+    let quote = typeof it.quote === "string" ? it.quote.trim().slice(0, 60) : "";
+    if (quote && !clauses[i].includes(quote)) quote = "";
+    let question = typeof it.question === "string" ? it.question.trim().slice(0, 150) : "";
+    if (BANNED.test(question)) question = "";
+    seen.add(i);
+    out.push({ index: i, concern: it.concern === true, category: CATEGORIES.includes(it.category) ? it.category : "기타",
+      quote, explain, question });
+  }
+  return out;
+}
+
+const TASKS = {
+  conditions: { prompt: PROMPT, schema: SCHEMA, maxOutputTokens: LIMITS.maxOutputTokens,
+    clean: (o) => ({ fields: sanitize(o) }) },
+  specials: { prompt: SPECIALS_PROMPT, schema: SPECIALS_SCHEMA, maxOutputTokens: 1024,
+    clean: (o, clauses) => ({ items: sanitizeSpecials(o, clauses) }) },
+};
+
+async function callGemini(text, key, fetchImpl = fetch, task = "conditions", clauses = []) {
+  const t = TASKS[task];
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
   try {
@@ -170,12 +243,12 @@ async function callGemini(text, key, fetchImpl = fetch) {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-goog-api-key": key },
         body: JSON.stringify({
-          contents: [{ role: "user", parts: [{ text: PROMPT + text }] }],
+          contents: [{ role: "user", parts: [{ text: t.prompt + text }] }],
           generationConfig: {
             temperature: 0,
             responseMimeType: "application/json",
-            responseSchema: SCHEMA,
-            maxOutputTokens: LIMITS.maxOutputTokens,
+            responseSchema: t.schema,
+            maxOutputTokens: t.maxOutputTokens,
           },
         }),
         signal: ctrl.signal,
@@ -187,7 +260,7 @@ async function callGemini(text, key, fetchImpl = fetch) {
     const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text;
     const tokens = data?.usageMetadata?.totalTokenCount;
     if (!raw) return { error: "gemini_empty", tokens };
-    return { fields: sanitize(JSON.parse(raw)), tokens };
+    return { ...t.clean(JSON.parse(raw), clauses), tokens };
   } catch (e) {
     return { error: e.name === "AbortError" ? "gemini_timeout" : "gemini_failed" };
   } finally {
@@ -228,7 +301,7 @@ async function readBody(req) {
   let s = "";
   for await (const chunk of req) {
     s += chunk;
-    if (s.length > 4000) throw new Error("too_large");
+    if (s.length > 8000) throw new Error("too_large");
   }
   return JSON.parse(s || "{}");
 }
@@ -248,19 +321,32 @@ async function handler(req, res, deps = {}) {
   } catch {
     return send(res, 400, { ok: false, error: "bad_json", message: "요청 형식이 잘못됐어요." });
   }
-  const text = typeof body?.text === "string" ? body.text.trim() : "";
-  if (!text) return send(res, 400, { ok: false, error: "empty", message: "문장을 입력해 주세요." });
-  if (text.length > MAX_CHARS)
-    return send(res, 413, { ok: false, error: "too_long", message: `문장은 ${MAX_CHARS}자 이내로 써 주세요.` });
+  const task = body?.task === "specials" ? "specials" : "conditions";
+  let text = "";
+  let clauses = [];
+  if (task === "specials") {
+    // 특약: 문장 1~8개, 각 200자 이내
+    clauses = Array.isArray(body?.clauses) ? body.clauses.map((c) => (typeof c === "string" ? c.trim() : "")) : [];
+    if (!clauses.length || clauses.some((c) => !c))
+      return send(res, 400, { ok: false, error: "empty", message: "설명할 특약이 없어요." });
+    if (clauses.length > MAX_CLAUSES || clauses.some((c) => c.length > MAX_CHARS))
+      return send(res, 413, { ok: false, error: "too_long", message: `특약은 ${MAX_CLAUSES}개, 문장마다 ${MAX_CHARS}자까지 설명할 수 있어요.` });
+    text = clauses.map((c, i) => `${i}. ${c}`).join("\n");
+  } else {
+    text = typeof body?.text === "string" ? body.text.trim() : "";
+    if (!text) return send(res, 400, { ok: false, error: "empty", message: "문장을 입력해 주세요." });
+    if (text.length > MAX_CHARS)
+      return send(res, 413, { ok: false, error: "too_long", message: `문장은 ${MAX_CHARS}자 이내로 써 주세요.` });
+  }
 
   const key = deps.key ?? process.env.GEMINI_API_KEY;
   if (!key) return send(res, 503, { ok: false, error: "no_key", message: ERROR_MESSAGES.no_key });
 
-  const allowed = checkLimit(ip, text);
+  const allowed = checkLimit(ip, text, Date.now(), task);
   if (typeof allowed === "string")
     return send(res, 429, { ok: false, error: allowed, message: LIMIT_MESSAGES[allowed], limits: limitStatus(Date.now(), ip) });
 
-  const out = await callGemini(text, key, deps.fetch);
+  const out = await callGemini(text, key, deps.fetch, task, clauses);
   recordTokens(allowed.entry, out.tokens);
   if (out.error === "gemini_quota") startCooldown();
   if (out.error) {
@@ -268,8 +354,10 @@ async function handler(req, res, deps = {}) {
     return send(res, out.error === "gemini_quota" ? 429 : 502,
       { ok: false, error: out.error, message: msg, limits: limitStatus(Date.now(), ip) });
   }
-  return send(res, 200, { ok: true, model: MODEL, fields: out.fields, limits: limitStatus(Date.now(), ip) });
+  const limits = limitStatus(Date.now(), ip);
+  if (task === "specials") return send(res, 200, { ok: true, model: MODEL, items: out.items, limits });
+  return send(res, 200, { ok: true, model: MODEL, fields: out.fields, limits });
 }
 
 module.exports = handler;
-module.exports._test = { checkLimit, recordTokens, startCooldown, limitStatus, estimateTokens, sanitize, usage, LIMITS };
+module.exports._test = { checkLimit, recordTokens, startCooldown, limitStatus, estimateTokens, sanitize, sanitizeSpecials, usage, LIMITS, TASKS };
