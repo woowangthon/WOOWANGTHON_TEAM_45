@@ -144,7 +144,7 @@ by_id = {r["id"]: r for r in rows}
 DEFAULTS = dict(step=1, f_rent=45, f_dep="상관없음", f_gate="정문", f_walk=15,
                 f_kinds=list(rc.KINDS), f_opts=[], f_pri=[], f_top=5,
                 sentence="", sel_listing=rows[0]["id"], ai_calls=0, searched=None, limits=None, ai_note=None,
-                understood=None, scroll_top=False)
+                understood=None, scroll_top=False, f_dep_custom=None, adjusted=None)
 for k, v in DEFAULTS.items():
     st.session_state.setdefault(k, v)
 # 다른 단계로 가서 입력칸이 화면에 없으면 Streamlit이 값을 지우므로, 매번 다시 넣어 유지한다
@@ -152,6 +152,21 @@ for k in ("f_rent", "f_dep", "f_gate", "f_walk", "f_kinds", "f_opts", "f_pri", "
     st.session_state[k] = st.session_state[k]
 DEPOSIT_CHOICES = {"300만 원": 3_000_000, "500만 원": 5_000_000, "1,000만 원": 10_000_000,
                    "1,500만 원": 15_000_000, "2,000만 원": 20_000_000, "상관없음": None}
+
+
+def deposit_label(won):
+    return f"{won // 10_000:,}만 원"
+
+
+def deposit_choices():
+    """기본 선택지 + 문장에서 읽은 금액(선택지에 없으면 그 금액 그대로 추가). 금액 순, '상관없음'은 맨 끝."""
+    ch = {k: v for k, v in DEPOSIT_CHOICES.items() if v}
+    custom = st.session_state.get("f_dep_custom")
+    if custom:
+        ch[deposit_label(custom)] = custom
+    out = dict(sorted(ch.items(), key=lambda kv: kv[1]))
+    out["상관없음"] = None
+    return out
 STEPS = {1: "1  집 찾기", 2: "2  추천 결과", 3: "3  계약 점검"}
 
 
@@ -162,29 +177,51 @@ def go(step):
 
 def current_condition():
     return dict(max_rent=st.session_state.f_rent * 10_000,
-                max_deposit=DEPOSIT_CHOICES[st.session_state.f_dep],
+                max_deposit=deposit_choices().get(st.session_state.f_dep),
                 gate=st.session_state.f_gate, max_walk=st.session_state.f_walk,
                 kinds=list(st.session_state.f_kinds), options=list(st.session_state.f_opts),
                 priorities=list(st.session_state.f_pri))
 
 
+SEARCH_KEYS = ("f_rent", "f_dep", "f_dep_custom", "f_gate", "f_walk", "f_kinds", "f_opts", "f_pri")
+
+
+def reset_inputs():
+    """새 문장 검색은 이전 검색 조건을 이어받지 않는다. 문장에서 읽지 못한 값은 기본값으로 돌아간다."""
+    for k in SEARCH_KEYS:
+        st.session_state[k] = copy.deepcopy(DEFAULTS[k])
+
+
 def fill_inputs(cond):
-    """해석한 조건으로 입력칸을 채운다. 읽지 못한 값은 기존 값을 그대로 둔다."""
+    """해석한 조건으로 입력칸을 채운다. 읽지 못한 값은 기본값(reset_inputs)을 쓴다.
+    입력칸 범위 밖이라 값을 바꿔야 했으면 그 내용을 돌려준다(화면에 알림)."""
+    adjusted = []
     if "max_rent" in cond:
-        st.session_state.f_rent = max(10, min(150, cond["max_rent"] // 10_000))
+        want = cond["max_rent"] // 10_000
+        st.session_state.f_rent = max(10, min(150, want))
+        if st.session_state.f_rent != want:
+            adjusted.append(f"월세 {want}만 원 → {st.session_state.f_rent}만 원 (입력 범위 10~150만 원)")
     if "max_deposit" in cond:
-        fit = [k for k, v in DEPOSIT_CHOICES.items() if v and v >= cond["max_deposit"]]
-        st.session_state.f_dep = fit[0] if fit else "상관없음"
+        want = cond["max_deposit"]
+        label = next((k for k, v in DEPOSIT_CHOICES.items() if v == want), None)
+        if label is None:  # 선택지에 없는 금액은 올리거나 '상관없음'으로 바꾸지 않고 그대로 쓴다
+            st.session_state.f_dep_custom = want
+            label = deposit_label(want)
+        st.session_state.f_dep = label
     if "gate" in cond:
         st.session_state.f_gate = cond["gate"]
     if "max_walk" in cond:
-        st.session_state.f_walk = min(30, max(5, cond["max_walk"]))
+        want = cond["max_walk"]
+        st.session_state.f_walk = min(30, max(5, want))
+        if st.session_state.f_walk != want:
+            adjusted.append(f"도보 {want}분 → {st.session_state.f_walk}분 (입력 범위 5~30분)")
     if "kinds" in cond:
         st.session_state.f_kinds = cond["kinds"]
     if "options" in cond:
         st.session_state.f_opts = cond["options"]
     if "priorities" in cond:
         st.session_state.f_pri = cond["priorities"]
+    return adjusted
 
 
 def save_search():
@@ -203,7 +240,8 @@ def find_by_sentence():
             st.session_state.limits = ai_parse.last_limits or st.session_state.limits
         st.session_state.ai_note = note
         cond, understood = rc.cond_from_ai(fields) if fields is not None else rc.parse_sentence(sentence)
-        fill_inputs(cond)
+        reset_inputs()
+        st.session_state.adjusted = fill_inputs(cond)
         st.session_state.understood = understood
     save_search()
     go(2)
@@ -213,6 +251,7 @@ def find_by_inputs():
     """「이 조건으로 찾기」: 입력칸 값으로만 검색 (Gemini 0회) → 2단계로."""
     st.session_state.understood = None
     st.session_state.ai_note = None
+    st.session_state.adjusted = None
     save_search()
     go(2)
 
@@ -406,7 +445,7 @@ if step == 1:
         c1, c2, c3 = st.columns(3)
         with c1:
             st.number_input("월세 상한 (만 원)", min_value=10, max_value=150, step=1, key="f_rent")
-            st.selectbox("보증금 상한", list(DEPOSIT_CHOICES), key="f_dep")
+            st.selectbox("보증금 상한", list(deposit_choices()), key="f_dep")
         with c2:
             st.selectbox("기준 문", list(rc.GATES), key="f_gate")
             st.slider("도보 시간 (분 이내)", 5, 30, key="f_walk")
@@ -431,12 +470,19 @@ elif step == 2:
         st.button("조건 바꾸기", on_click=go, args=(1,), use_container_width=True)
     if st.session_state.understood == []:
         st.caption("문장에서 조건을 찾지 못해 기본 조건으로 찾았어요. 「조건 바꾸기」에서 직접 골라 주세요.")
+    elif st.session_state.understood:
+        st.caption("문장에서 읽은 조건 · " + " · ".join(st.session_state.understood)
+                   + " (나머지는 기본값이에요. 위 조건표를 확인해 주세요.)")
+    if st.session_state.adjusted:
+        st.warning("입력 범위에 맞춰 바꾼 조건이 있어요 · " + " · ".join(st.session_state.adjusted)
+                   + ". 「조건 바꾸기」에서 확인해 주세요.")
     if st.session_state.ai_note:  # AI를 못 쓴 이유 (검색 제한·연결 실패 등)
         st.caption(f"검색 제한 · {st.session_state.ai_note}")
 
     st.markdown('<div class="sh-kicker">02 / 나에게 맞는 추천</div>', unsafe_allow_html=True)
     st.markdown(f"### 조건에 맞는 집 {len(hits)}곳을 찾았어요")
-    st.caption(f"선택한 우선순위와 설문 가중치로 정렬했어요. 상위 {len(ranked)}곳을 비교해 보세요.")
+    st.caption(f"선택한 우선순위와 설문 가중치로 정렬했어요. 상위 {len(ranked)}곳을 비교해 보세요. "
+               "추천 점수는 계약 안전도와 별개라, 계약 위험 신호가 있는 집은 카드에 경고로 표시해요.")
     if ranked:
         lowest = min(rc.real_monthly(it["row"]) for it in ranked) / 10_000
         nearest = min(it["row"][rc.GATES[s["cond"]["gate"]]] for it in ranked)
@@ -481,6 +527,9 @@ elif step == 2:
             if mk["diff"] is not None:
                 line.append(f'<span class="sh-muted">주변 {r["kind"]} 실거래 시세 대비 {mk["diff"]:+.0%}</span>')
             st.markdown("".join(line), unsafe_allow_html=True)
+            if flags[cc.RISK]:
+                st.error(f"⚠ 계약 위험 신호 {flags[cc.RISK]}개 · 조건은 잘 맞지만 보증금을 지키기 어려울 수 있어요. "
+                         "계약 전에 「계약서 점검하기」에서 꼭 확인하세요.")
             st.markdown(f'<div class="sh-reasons"><b>이 집을 추천하는 이유</b><br>{html.escape(" · ".join(reasons))}</div>',
                         unsafe_allow_html=True)
             if weak:
@@ -565,7 +614,7 @@ else:
     unknown = [i for i in res["items"] if i["status"] == cc.UNKNOWN]
     ok = [i["name"] for i in res["items"] if i["status"] == cc.OK]
     if unknown:
-        st.markdown("#### 문서에 없어서 확인이 필요한 것")
+        st.markdown("#### 직접 확인이 필요한 것 (문서에 없거나 규칙으로 판단하지 못함)")
         for i in unknown:
             st.markdown(f"- **{i['name']}** · {i['detail']}")
     if ok:

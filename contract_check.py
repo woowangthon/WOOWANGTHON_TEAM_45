@@ -168,6 +168,7 @@ SPECIAL_RULES = [
 SAFE_RULES = [
     ("담보 설정 금지 (세입자 보호)", [r"담보|근저당", r"설정하지\s*않"]),
     ("보증금 미반환 시 해제 (세입자 보호)", [r"반환하지\s*못", r"해제"]),
+    ("임대인 수리 부담 (세입자 보호)", [r"수리", r"^(?!.*임차인).*임대인이\s*(수리|부담)"]),
 ]
 
 
@@ -182,8 +183,10 @@ def classify_special(sentence):
         if all(re.search(p, sentence) for p in pats):
             return dict(type=name, status=OK, why="세입자에게 유리한 보호 조항이에요.", question=None,
                         sentence=sentence)
-    return dict(type="규칙에 없는 문장", status=OK,
-                why="등록된 위험 유형에 해당하지 않아요. 직접 한 번 읽어 보세요.", question=None,
+    # 규칙이 모르는 문장을 '정상'으로 두면 위험한 문구도 문제없어 보이므로 '확인 필요'로 보낸다
+    return dict(type="규칙에 없는 문장", status=UNKNOWN,
+                why="등록된 유형에 없는 특약이라 자동으로 판단하지 못했어요. 직접 읽고 불리한 내용이 없는지 확인하세요.",
+                question="이 특약이 정확히 어떤 의미인지, 임차인에게 불리한 내용은 없는지 설명해 주실 수 있나요?",
                 sentence=sentence)
 
 
@@ -236,14 +239,16 @@ def check(contract_text, registry_text, today=None):
                            None if st == OK else "집이 경매로 넘어가도 제 보증금을 돌려받을 수 있는지, 보증보험 가입이 가능한지 확인할 수 있을까요?"))
         items[-1]["ratio"] = ratio
 
-    # 3. 압류·가압류
-    if r["seizure"] is None and r["provisional"] is None:
-        items.append(_item("seizure", "압류·가압류", UNKNOWN, "등기에 압류·가압류 기재 여부가 없어요.",
-                           None, "최신 등기부등본(갑구)을 계약 당일 다시 떼어 볼 수 있나요?"))
-    elif r["seizure"] or r["provisional"]:
+    # 3. 압류·가압류 — 두 줄을 따로 본다. 하나라도 '있음'이면 위험, 하나라도 빠져 있으면 확인 필요
+    if r["seizure"] or r["provisional"]:
         items.append(_item("seizure", "압류·가압류", RISK, "압류 또는 가압류가 있어요. 집주인의 빚 문제로 집이 넘어갈 수 있어요.",
                            r["lines"].get("seizure") if r["seizure"] else r["lines"].get("provisional"),
                            "압류(가압류)를 언제까지 해제하실 수 있나요? 해제 확인 후 계약하고 싶어요."))
+    elif r["seizure"] is None or r["provisional"] is None:
+        missing = [n for n, v in (("압류", r["seizure"]), ("가압류", r["provisional"])) if v is None]
+        items.append(_item("seizure", "압류·가압류", UNKNOWN,
+                           f"등기에 {'·'.join(missing)} 기재 여부가 없어요.",
+                           None, "최신 등기부등본(갑구)을 계약 당일 다시 떼어 볼 수 있나요?"))
     else:
         items.append(_item("seizure", "압류·가압류", OK, "압류·가압류 기재가 없어요.", r["lines"].get("seizure")))
 
@@ -300,11 +305,18 @@ def check(contract_text, registry_text, today=None):
                            "특약사항이 있다면 전부 문서로 받을 수 있나요?"))
     else:
         worst = max([s["status"] for s in specials] or [OK], key=SEVERITY.get)
-        bad = [s for s in specials if s["status"] != OK]
-        detail = ("위험·주의 특약: " + ", ".join(s["type"] for s in bad)) if bad else \
-            ("특약 없음" if not specials else "위험 유형에 해당하는 특약이 없어요.")
+        bad = [s for s in specials if s["status"] in (RISK, CAUTION)]
+        unread = [s for s in specials if s["status"] == UNKNOWN]
+        parts = []
+        if bad:
+            parts.append("위험·주의 특약: " + ", ".join(s["type"] for s in bad))
+        if unread:
+            parts.append(f"규칙으로 판단하지 못한 특약 {len(unread)}개(직접 확인): "
+                         + " / ".join(f"「{s['sentence']}」" for s in unread))
+        detail = " · ".join(parts) or ("특약 없음" if not specials else "위험 유형에 해당하는 특약이 없어요.")
+        first = (bad or unread or [None])[0]
         items.append(_item("special", "특약 조항", worst, detail,
-                           bad[0]["sentence"] if bad else None, bad[0]["question"] if bad else None))
+                           first["sentence"] if first else None, first["question"] if first else None))
     items[-1]["specials"] = specials
 
     return dict(items=items, overall=overall(items), contract=c, registry=r, questions=collect_questions(items))

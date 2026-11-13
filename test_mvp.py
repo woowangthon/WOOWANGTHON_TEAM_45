@@ -183,6 +183,29 @@ def test_limits():
     print("\n[11] 검색 제한 표시: 사이트 오늘", ai_parse.last_limits["today_used"], "/", ai_parse.last_limits["today_limit"])
 
 
+def test_review_fixes():
+    """제출 전 코드 검토(11/13)에서 나온 문제 회귀 테스트."""
+    # 1) 규칙이 모르는 특약은 '정상'이 아니라 '확인 필요'
+    unknown = cc.classify_special("임차인은 퇴거 시 보증금의 10%를 청소비로 낸다.")
+    assert unknown["status"] == cc.UNKNOWN and unknown["question"]
+    assert cc.classify_special("계약 기간 중 시설 고장은 임대인이 수리한다.")["status"] == cc.OK
+    assert cc.classify_special("고장은 임대인이 수리하되 모든 수리 비용은 임차인이 부담한다.")["status"] == cc.CAUTION
+    doc = "임대인: 김가상\n[특약사항]\n1. 임차인은 퇴거 시 보증금의 10%를 청소비로 낸다."
+    sp = next(i for i in cc.check(doc, "")["items"] if i["key"] == "special")
+    assert sp["status"] == cc.UNKNOWN and "청소비" in sp["detail"]
+
+    # 2) 압류·가압류 중 하나만 적혀 있으면 '확인 필요', 하나라도 있으면 '위험'
+    def seizure(reg):
+        return next(i for i in cc.check("", reg)["items"] if i["key"] == "seizure")["status"]
+    assert seizure("압류: 없음") == cc.UNKNOWN
+    assert seizure("가압류: 없음") == cc.UNKNOWN
+    assert seizure("압류: 없음\n가압류: 없음") == cc.OK
+    assert seizure("가압류: 있음 (2026.01.02)") == cc.RISK
+    assert seizure("") == cc.UNKNOWN
+
+    print("\n[12] 검토 반영: 모르는 특약·압류 누락 → 확인 필요, 계약 위험 매물은 순위 유지 + 경고")
+
+
 if __name__ == "__main__":
     db = Path(tempfile.mkdtemp()) / "test.db"
     db_seed.build(db)
@@ -195,4 +218,5 @@ if __name__ == "__main__":
     test_ai_parse(rows)
     test_highlights(rows, docs, regs)
     test_limits()
+    test_review_fixes()
     print("\n모든 테스트 통과 ✅")
