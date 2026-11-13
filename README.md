@@ -131,3 +131,10 @@ python db_seed.py           # DB를 처음부터 다시 만들 때
 - [x] Vercel에 `GEMINI_API_KEY` 등록 후 Redeploy (11/12)
 - [x] AI Studio에서 RPM·RPD·TPM 확인 (RPD 500 → 전체 하루 200 유지)
 - [ ] 발표·영상에 "샘플 데이터" 표시
+
+## 3D 방 둘러보기 (11/13 추가)
+
+- 「3 계약 점검」 화면 위쪽에 **🧊 3D로 방 둘러보기**가 있어요. 드래그로 돌리고, 휠·두 손가락으로 확대해요.
+- 모델은 휴대폰 3D 스캔 앱 **Scaniverse**로 실제 자취방을 찍어 GLB로 내보낸 파일이에요 (`assets/room_scan.glb`, 2.3MB). 가상 매물과 같은 방은 아니고 기능 시연용이에요.
+- 3D 표시는 Google의 `<model-viewer>`(BSD-3)를 `assets/model-viewer.min.js`로 같이 올려서 써요. 외부 CDN이 막혀도 동작해요.
+- 다른 방으로 바꾸려면 새 GLB 파일을 `assets/room_scan.glb` 이름으로 덮어쓰면 돼요.

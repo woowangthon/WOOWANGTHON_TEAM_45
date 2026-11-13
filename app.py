@@ -7,6 +7,7 @@
 문장 해석: 「찾기」는 문장을 Gemini(/api/parse 서버리스 함수)로 조건으로 바꾼 뒤 바로 검색해요. 실패하면 규칙 해석.
           「이 조건으로 찾기」는 입력칸 값으로만 검색해요(Gemini 0회). 검색·점수·계약 점검은 전부 규칙이에요.
 """
+import base64
 import copy
 import html
 from pathlib import Path
@@ -19,6 +20,10 @@ import db_seed
 import recommend as rc
 
 DB_PATH = Path(__file__).with_name("safehome.db")
+# 3D 방 모델: Scaniverse(휴대폰 3D 스캔 앱)로 찍은 방을 GLB 파일로 저장해 둔 것
+ASSETS = Path(__file__).with_name("assets")
+ROOM_GLB = "room_scan.glb"
+MODEL_VIEWER_CDN = "https://cdn.jsdelivr.net/npm/@google/model-viewer@4.1.0/dist/model-viewer.min.js"
 
 st.set_page_config(page_title="Safe Home", page_icon="🏠", layout="wide",
                    initial_sidebar_state="collapsed")
@@ -212,6 +217,44 @@ def doc_html(text, doc_marks, note_status):
     return '<div class="sh-doc">' + "".join(out) + "</div>"
 
 
+def room_3d(height=440):
+    """방 3D 모델을 마우스·손가락으로 돌려 볼 수 있게 보여 준다. 실패하면 False.
+
+    웹(stlite·Vercel)에서는 같은 사이트의 /assets/ 파일 주소로 불러오고,
+    내 컴퓨터(streamlit run)에서는 GLB 파일을 화면 코드에 직접 넣는다.
+    """
+    origin_file = Path(__file__).with_name("site_origin.txt")  # index.html이 넣어 주는 사이트 주소
+    if origin_file.exists():
+        base = origin_file.read_text().strip().rstrip("/") + "/assets/"
+        src, viewer_js = base + ROOM_GLB, base + "model-viewer.min.js"
+    elif (ASSETS / ROOM_GLB).exists():
+        src = "data:model/gltf-binary;base64," + base64.b64encode((ASSETS / ROOM_GLB).read_bytes()).decode()
+        viewer_js = MODEL_VIEWER_CDN
+    else:
+        return False
+    try:
+        import streamlit.components.v1 as components
+    except Exception:
+        return False
+    components.html(f"""
+<script type="module" src="{viewer_js}"></script>
+<style>
+  body {{ margin: 0; font-family: system-ui, sans-serif; }}
+  model-viewer {{ width: 100%; height: {height - 8}px; border-radius: 10px;
+                  background: radial-gradient(circle at 50% 40%, #f4f5f7, #d9dce1); }}
+  .hint {{ position: absolute; left: 12px; bottom: 12px; padding: 4px 10px; border-radius: 999px;
+           font-size: 12px; color: #fff; background: rgba(0,0,0,0.45); }}
+</style>
+<model-viewer src="{src}" alt="자취방 3D 스캔 모델" camera-controls touch-action="pan-y"
+              auto-rotate auto-rotate-delay="1500" rotation-per-second="18deg" interaction-prompt="none"
+              shadow-intensity="0.6" exposure="1.05" camera-orbit="35deg 65deg auto">
+  <div class="hint" slot="poster">3D 방 불러오는 중…</div>
+  <div class="hint">드래그로 돌리기 · 휠/두 손가락으로 확대</div>
+</model-viewer>
+""", height=height)
+    return True
+
+
 # ── 헤더 · 단계 표시 ──────────────────────────────────────────
 st.markdown("## Safe Home")
 st.caption("충북대 근처 자취방 찾기와 계약 전 점검")
@@ -346,6 +389,13 @@ else:
     st.markdown(f'<div class="sh-verdict" style="background:{bg};border-left:4px solid {color}">'
                 f'{html.escape(ov["label"])}'
                 f'{" · " + " · ".join(summary) if summary else ""}</div>', unsafe_allow_html=True)
+
+    with st.expander("🧊 3D로 방 둘러보기", expanded=True):
+        if room_3d():
+            st.caption("휴대폰 3D 스캔 앱(Scaniverse)으로 실제 자취방을 찍은 시연용 모델이에요. "
+                       "가상 매물과 같은 방은 아니고, 집을 직접 가기 전에 구조·크기를 미리 보는 기능을 보여 주는 예시예요.")
+        else:
+            st.caption("3D 모델 파일(assets/room_scan.glb)을 찾지 못했어요.")
 
     d1, d2 = st.columns(2)
     with d1:
