@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Safe Home · 자취방 안심 점검</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@stlite/browser@1.4.0/build/stlite.css" />
+  <style>
+    #loading { font-family: system-ui, sans-serif; padding: 48px 16px; text-align: center; color: #555; }
+  </style>
+</head>
+<body>
+  <div id="root">
+    <div id="loading">Safe Home 불러오는 중… 처음 접속은 20~40초 정도 걸려요</div>
+  </div>
+  <script type="module">
+    import { mount } from "https://cdn.jsdelivr.net/npm/@stlite/browser@1.4.0/build/stlite.js";
+
+    // 파이썬 파일은 같은 폴더에서 읽어 옴. sqlite3가 없으면 app.py가 메모리 데이터로 대체.
+    mount(
+      {
+        requirements: [],
+        entrypoint: "app.py",
+        files: {
+          "app.py": { url: "./app.py" },
+          "recommend.py": { url: "./recommend.py" },
+          "ai_parse.py": { url: "./ai_parse.py" },
+          // AI 조건 분석은 같은 사이트의 /api/parse(서버리스 함수)를 불러요. 키는 서버에만 있어요.
+          "site_origin.txt": { data: location.origin },
+          "contract_check.py": { url: "./contract_check.py" },
+          "db_seed.py": { url: "./db_seed.py" },
+          "market_prices.csv": { url: "./market_prices.csv" },
+        },
+      },
+      document.getElementById("root"),
+    );
+  </script>
+</body>
+</html>
