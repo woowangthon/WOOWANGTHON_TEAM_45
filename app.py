@@ -150,6 +150,8 @@ for k, v in DEFAULTS.items():
 # 다른 단계로 가서 입력칸이 화면에 없으면 Streamlit이 값을 지우므로, 매번 다시 넣어 유지한다
 for k in ("f_rent", "f_dep", "f_gate", "f_walk", "f_kinds", "f_opts", "f_pri", "f_top", "sentence", "sel_listing"):
     st.session_state[k] = st.session_state[k]
+for k in [k for k in st.session_state if str(k).startswith("ck_")]:  # ③ 체크리스트 체크 상태도 유지
+    st.session_state[k] = st.session_state[k]
 DEPOSIT_CHOICES = {"300만 원": 3_000_000, "500만 원": 5_000_000, "1,000만 원": 10_000_000,
                    "1,500만 원": 15_000_000, "2,000만 원": 20_000_000, "상관없음": None}
 
@@ -612,9 +614,15 @@ else:
         else:
             st.caption("3D 모델 파일(assets/room_scan.glb)을 찾지 못했어요.")
 
-    tab_result, tab_check = st.tabs(["분석 결과 (계약서·등기)", f"직접 확인할 것 ({len(todo)}개 미확인)"])
+    # st.tabs는 체크할 때마다 첫 탭으로 돌아가서, 선택을 기억하는 버튼(라디오)으로 나눈다
+    VIEWS = ["분석 결과 (계약서·등기)", "직접 확인할 것 (미확인 체크리스트)"]  # 이름이 바뀌면 선택이 풀려서 고정
+    view_key = f"view_{lid}"
+    if st.session_state.get(view_key, 0) not in (0, 1):
+        st.session_state[view_key] = 0
+    view = st.radio("보기", [0, 1], key=view_key, format_func=lambda i: VIEWS[i], horizontal=True,
+                    label_visibility="collapsed")
 
-    with tab_result:
+    if view == 0:
         d1, d2 = st.columns(2)
         with d1:
             st.markdown("**계약서**")
@@ -671,7 +679,8 @@ else:
             st.markdown(f'<div class="sh-muted" style="margin-top:8px">문제없는 항목: {html.escape(", ".join(ok))}</div>',
                         unsafe_allow_html=True)
 
-    with tab_check:
+    else:
+        st.markdown(f"**아직 미확인 {len(todo)}개** · 직접 확인함 {len(res['checklist']) - len(todo)}개")
         st.caption("분석은 가상 문서를 본 결과예요. 실제 계약에서는 아래 서류·현장을 직접 확인해야 하고, "
                    "확인하기 전까지는 미확인으로 남아요. 확인했으면 체크해 두세요(이 화면에서만 기억해요).")
         for ck in res["checklist"]:
