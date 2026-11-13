@@ -38,22 +38,81 @@ TONE = {
 
 st.markdown("""
 <style>
-[data-testid="stSidebar"], [data-testid="stSidebarCollapsedControl"] { display: none; }
-.block-container { padding-top: 2rem; max-width: 1100px; }
-.sh-chip { display: inline-block; padding: 2px 10px; margin: 0 6px 6px 0; border-radius: 999px;
-           font-size: 0.85rem; border: 1px solid rgba(128,128,128,0.35); }
-.sh-badge { display: inline-block; padding: 1px 8px; margin-right: 6px; border-radius: 6px;
-            font-size: 0.8rem; font-weight: 600; }
-.sh-doc { border: 1px solid rgba(128,128,128,0.35); border-radius: 10px; padding: 14px 16px;
-          font-size: 0.9rem; line-height: 1.75; }
-.sh-doc .ln { padding: 1px 8px; margin: 0 -8px; border-left: 3px solid transparent; white-space: pre-wrap; }
-.sh-doc .hd { font-weight: 700; margin-top: 6px; }
-.sh-doc .ttl { font-weight: 700; font-size: 1rem; margin-bottom: 4px; }
-.sh-no { display: inline-block; min-width: 1.35em; height: 1.35em; line-height: 1.35em; margin-left: 6px;
-         border-radius: 999px; text-align: center; font-size: 0.75rem; font-weight: 700; color: #fff; }
-.sh-verdict { border-radius: 10px; padding: 12px 16px; margin: 4px 0 16px; font-weight: 600; }
-.sh-price { font-size: 1.6rem; font-weight: 700; line-height: 1.2; }
-.sh-muted { opacity: 0.7; font-size: 0.85rem; }
+/* Native Streamlit controls retain their labels, focus and keyboard behavior. */
+:root { --sh-ink:#16342e; --sh-muted:#61756e; --sh-line:#dce7e1; --sh-green:#087f65; }
+[data-testid="stSidebar"], [data-testid="stSidebarCollapsedControl"] { display:none; }
+[data-testid="stAppViewContainer"] { background:#f5f8f5; }
+[data-testid="stHeader"] { background:transparent; }
+.block-container { padding:2.2rem 2rem 4rem; max-width:1120px; }
+html, body, [data-testid="stApp"] { color:var(--sh-ink); }
+h1,h2,h3,h4 { letter-spacing:-.04em; color:var(--sh-ink); }
+h3 { font-size:1.5rem !important; }
+[data-testid="stCaptionContainer"] { color:var(--sh-muted); }
+[data-testid="stVerticalBlock"] { gap:1rem; }
+.st-key-search_card, .st-key-usage_card, [class*="st-key-listing_"], [class*="st-key-note_"] { border:1px solid var(--sh-line) !important; border-radius:20px !important; background:#fff; padding:22px !important; }
+[data-testid="stExpander"] { border:1px solid var(--sh-line); border-radius:16px; background:#fff; overflow:hidden; }
+[data-testid="stExpander"] summary { padding:1rem; font-weight:600; }
+[data-testid="stTextInput"] input, [data-testid="stNumberInput"] input { min-height:46px; }
+[data-testid="stButton"] button { min-height:46px; border-radius:12px; font-weight:650; border-color:#cdded5; }
+[data-testid="stButton"] button[kind="primary"] { background:#087f65; border-color:#087f65; color:white; }
+[data-testid="stButton"] button:hover { border-color:#087f65; color:#087f65; }
+[data-testid="stButton"] button[kind="primary"]:hover { background:#06634f; color:#fff; }
+[data-testid="stButton"] button:focus-visible, input:focus-visible, summary:focus-visible { outline:3px solid #49bfa2; outline-offset:3px; }
+[data-testid="stRadio"] [role="radiogroup"] { gap:10px; }
+[data-testid="stRadio"] label { margin:0; padding:10px 18px; border:1px solid var(--sh-line); border-radius:12px; background:white; }
+[data-testid="stRadio"] label:has(input:checked) { background:#e1f2e9; border-color:#087f65; }
+.sh-brand { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:10px; }
+.sh-logo { display:flex; align-items:center; gap:10px; font-weight:800; font-size:1.35rem; letter-spacing:-.04em; }
+.sh-logo-icon { display:grid; place-items:center; width:36px; height:36px; border-radius:12px; background:#087f65; color:white; font-size:22px; }
+.sh-campus { font-size:.78rem; color:#466357; border:1px solid #cedfd3; border-radius:999px; padding:6px 12px; }
+.sh-hero { position:relative; display:grid; grid-template-columns:1.7fr 1fr; gap:24px; padding:36px 38px; border-radius:24px; background:#163e34; color:white; overflow:hidden; }
+.sh-eyebrow { font-size:.72rem; font-weight:750; letter-spacing:.14em; color:#a3dcc5; margin-bottom:14px; }
+.sh-hero h1 { color:white; font-size:2.55rem; line-height:1.3; margin:0 0 14px; padding:0; }
+.sh-hero p { color:#d0e3d9; font-size:.95rem; line-height:1.8; margin:0; }
+.sh-hero em { color:#bce8b4; font-style:normal; }
+.sh-room { position:relative; align-self:center; height:180px; border:2px solid #6d9a87; border-radius:12px; transform:rotate(-5deg); background:#255345; box-shadow:12px 12px 0 #103329; }
+.sh-bed { position:absolute; top:16px; left:16px; width:44%; height:108px; background:#bad6bc; border:7px solid #e2eede; border-radius:6px; }
+.sh-pillow { width:80%; height:25px; background:#f6f8e9; border-radius:4px; margin:5px auto; }
+.sh-desk { position:absolute; right:16px; top:16px; width:32%; height:44px; border-radius:5px; background:#d2b78b; border:4px solid #e5d4b6; }
+.sh-plant { position:absolute; right:28px; bottom:20px; font-size:32px; color:#bce8b4; }
+.sh-room-label { position:absolute; bottom:14px; left:18px; font-size:.72rem; color:#d0e3d9; letter-spacing:.05em; }
+.sh-intro { margin:8px 0 2px; }
+.sh-intro h2 { font-size:1.6rem; margin:0 0 6px; padding:0; }
+.sh-intro p { color:var(--sh-muted); margin:0; font-size:.9rem; }
+.sh-kicker { color:#087f65; font-size:.75rem; font-weight:750; letter-spacing:.08em; margin-bottom:8px; }
+.sh-chip { display:inline-block; padding:6px 12px; margin:0 6px 6px 0; border-radius:999px; font-size:.8rem; color:#36584b; background:#edf4ef; border:1px solid #dce8df; }
+.sh-badge { display:inline-block; padding:4px 9px; margin:0 6px 6px 0; border-radius:7px; font-size:.78rem; font-weight:650; }
+.sh-doc { border:1px solid var(--sh-line); border-radius:16px; background:#fff; padding:20px; font-size:.86rem; line-height:1.9; overflow-wrap:anywhere; }
+.sh-doc .ln { padding:2px 8px; margin:0 -8px; border-left:3px solid transparent; white-space:pre-wrap; }
+.sh-doc .hd { font-weight:700; margin-top:12px; }
+.sh-doc .ttl { font-weight:750; font-size:1rem; margin-bottom:10px; }
+.sh-no { display:inline-block; min-width:1.5em; height:1.5em; line-height:1.5em; margin-left:6px; border-radius:999px; text-align:center; font-size:.75rem; font-weight:700; color:#fff; }
+.sh-verdict { border-radius:14px; padding:18px 20px; margin:8px 0; font-weight:650; }
+.sh-price { font-size:1.9rem; font-weight:800; line-height:1.4; letter-spacing:-.05em; color:#087f65; }
+.sh-muted { color:var(--sh-muted); font-size:.82rem; line-height:1.7; }
+.sh-rank { font-size:.75rem; color:#087f65; font-weight:750; margin-bottom:4px; }
+.sh-reasons { padding:14px 16px; border-radius:12px; background:#f2f7f3; font-size:.87rem; line-height:1.8; margin:8px 0; }
+.sh-stats { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin:8px 0 12px; }
+.sh-stat { padding:18px 20px; background:#fff; border:1px solid var(--sh-line); border-radius:16px; }
+.sh-stat strong { display:block; color:#163e34; font-size:1.45rem; letter-spacing:-.04em; margin-top:4px; }
+.sh-footer { margin-top:32px; padding-top:20px; border-top:1px solid var(--sh-line); color:#61756e; font-size:.75rem; line-height:1.9; }
+@media(max-width:680px) {
+  .block-container { padding:1.3rem 1rem 3rem; }
+  .sh-hero { padding:26px 24px; grid-template-columns:1fr; border-radius:20px; }
+  .sh-hero h1 { font-size:2rem; }
+  .sh-room { display:none; }
+  .sh-campus { font-size:.68rem; padding:5px 8px; }
+  [data-testid="stHorizontalBlock"] { flex-wrap:wrap; gap:.8rem; }
+  [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] { width:100% !important; flex:1 1 100% !important; min-width:0 !important; }
+  [data-testid="stRadio"] [role="radiogroup"] { display:flex; flex-wrap:wrap; gap:6px; }
+  [data-testid="stRadio"] label { padding:8px 10px; font-size:.82rem; }
+  .sh-stats { gap:6px; }
+  .sh-stat { padding:12px 10px; }
+  .sh-stat strong { font-size:1.2rem; }
+  .sh-doc { padding:16px; }
+  .st-key-search_card, .st-key-usage_card, [class*="st-key-listing_"], [class*="st-key-note_"] { padding:16px !important; }
+}
+@media(prefers-reduced-motion:reduce) { *, *::before, *::after { scroll-behavior:auto !important; transition:none !important; } }
 </style>
 """, unsafe_allow_html=True)
 
@@ -187,7 +246,7 @@ def limit_box():
             ("사이트 전체 최근 1분", f"{lim['minute_used']} / {lim['minute_limit']}번 · 토큰 {lim['minute_tokens']:,} / {lim['token_limit']:,}",
              max(lim["minute_used"] / max(lim["minute_limit"], 1), lim["minute_tokens"] / max(lim["token_limit"], 1)) * 100, 100),
         ]
-    with st.container(border=True):
+    with st.container(border=True, key="usage_card"):
         head, btn = st.columns([5, 1], vertical_alignment="center")
         with head:
             st.markdown("**검색 제한** <span class=\"sh-muted\">Gemini AI 사용량</span>", unsafe_allow_html=True)
@@ -307,10 +366,9 @@ def room_3d(height=440):
 
 
 # ── 헤더 · 단계 표시 ──────────────────────────────────────────
-st.markdown("## Safe Home")
-st.caption("충북대 근처 자취방 찾기와 계약 전 점검")
+st.markdown('<div class="sh-brand"><div class="sh-logo"><span class="sh-logo-icon" aria-hidden="true">⌂</span>'
+            'Safe Home</div><span class="sh-campus">충북대학교 · 자취 생활의 시작</span></div>', unsafe_allow_html=True)
 st.radio("단계", list(STEPS), key="step", format_func=STEPS.get, horizontal=True, label_visibility="collapsed")
-st.divider()
 
 if st.session_state.scroll_top:  # 단계가 바뀌면 화면 맨 위로
     st.session_state.scroll_top = False
@@ -326,17 +384,25 @@ step = st.session_state.step
 
 # ── 1 집 찾기 ─────────────────────────────────────────────────
 if step == 1:
-    st.markdown("### 어떤 집을 찾으세요?")
-    q1, q2 = st.columns([5, 1], vertical_alignment="bottom")
-    with q1:
-        st.text_input("찾는 집", key="sentence", max_chars=ai_parse.MAX_CHARS, label_visibility="collapsed",
-                      placeholder="예) 정문 걸어서 10분, 월세 40 이하, 조용하고 세탁기 있는 원룸")
-    with q2:
-        st.button("찾기", type="primary", on_click=find_by_sentence, use_container_width=True)
+    st.markdown("""<section class="sh-hero">
+<div><div class="sh-eyebrow">FIND YOUR PLACE, FEEL AT HOME</div>
+<h1>처음 구하는 내 방,<br><em>안심부터 챙겨요.</em></h1>
+<p>나에게 맞는 자취방을 찾고, 계약 전 놓치기 쉬운 부분까지.<br>충북대 앞 새로운 시작을 함께 준비해요.</p></div>
+<div class="sh-room" aria-hidden="true"><div class="sh-bed"><div class="sh-pillow"></div></div>
+<div class="sh-desk"></div><div class="sh-plant">✳</div><div class="sh-room-label">A PLACE TO CALL HOME</div></div></section>""", unsafe_allow_html=True)
+    st.markdown('<div class="sh-intro"><div class="sh-kicker">01 / 나의 조건 찾기</div>'
+                '<h2>어떤 방에서 살고 싶나요?</h2><p>예산, 통학 거리, 꼭 필요한 옵션을 편하게 적어 주세요.</p></div>', unsafe_allow_html=True)
+    with st.container(border=True, key="search_card"):
+        q1, q2 = st.columns([5, 1], vertical_alignment="bottom")
+        with q1:
+            st.text_input("찾는 집", key="sentence", max_chars=ai_parse.MAX_CHARS,
+                          placeholder="예) 정문 10분, 월세 40만 원 이하, 조용하고 세탁기 있는 원룸")
+        with q2:
+            st.button("내 방 찾기 →", type="primary", on_click=find_by_sentence, use_container_width=True)
+        st.caption("문장은 AI로 조건을 정리해요. 연결이 어려우면 간단 해석으로 검색을 이어 가요.")
 
-    limit_box()
-
-    with st.expander("조건 직접 고르기"):
+    with st.expander("조건 직접 고르기 · 예산과 생활 취향", expanded=True):
+        st.caption("입력한 조건만으로 검색해요. 월세 상한에는 관리비가 포함되지 않아요.")
         c1, c2, c3 = st.columns(3)
         with c1:
             st.number_input("월세 상한 (만 원)", min_value=10, max_value=150, step=1, key="f_rent")
@@ -349,7 +415,10 @@ if step == 1:
             st.multiselect("꼭 있어야 하는 옵션", rc.OPTIONS, key="f_opts")
         st.multiselect("중요하게 보는 것 (고른 순서대로)", rc.FACTORS, key="f_pri")
         st.radio("보여 줄 개수", [3, 5], horizontal=True, key="f_top")
-        st.button("이 조건으로 찾기", on_click=find_by_inputs)
+        st.button("이 조건으로 찾기", on_click=find_by_inputs, type="primary", use_container_width=True)
+
+    with st.expander("AI 검색 사용량 · 한도 안내"):
+        limit_box()
 
 # ── 2 추천 결과 ───────────────────────────────────────────────
 elif step == 2:
@@ -365,7 +434,15 @@ elif step == 2:
     if st.session_state.ai_note:  # AI를 못 쓴 이유 (검색 제한·연결 실패 등)
         st.caption(f"검색 제한 · {st.session_state.ai_note}")
 
-    st.markdown(f"### 조건에 맞는 집 {len(hits)}곳")
+    st.markdown('<div class="sh-kicker">02 / 나에게 맞는 추천</div>', unsafe_allow_html=True)
+    st.markdown(f"### 조건에 맞는 집 {len(hits)}곳을 찾았어요")
+    st.caption(f"선택한 우선순위와 설문 가중치로 정렬했어요. 상위 {len(ranked)}곳을 비교해 보세요.")
+    if ranked:
+        lowest = min(rc.real_monthly(it["row"]) for it in ranked) / 10_000
+        nearest = min(it["row"][rc.GATES[s["cond"]["gate"]]] for it in ranked)
+        st.markdown(f'<div class="sh-stats"><div class="sh-stat"><span class="sh-muted">추천하는 집</span><strong>{len(ranked)}곳</strong></div>'
+                    f'<div class="sh-stat"><span class="sh-muted">추천 중 최저 월 비용</span><strong>{lowest:.0f}만 원</strong></div>'
+                    f'<div class="sh-stat"><span class="sh-muted">추천 중 가장 가까운 집</span><strong>도보 {nearest}분</strong></div></div>', unsafe_allow_html=True)
     if not ranked:
         st.info("조건에 맞는 집이 없어요. 월세 상한이나 도보 시간을 조금 늘려 보세요.")
 
@@ -375,10 +452,11 @@ elif step == 2:
         flags = cc.count_flags(res)
         mk = rc.market_compare(r, market)
         reasons, weak = rc.explain(item, weights, s["cond"]["gate"])
-        with st.container(border=True):
+        with st.container(border=True, key=f"listing_{r['id']}"):
             a, b = st.columns([3, 1])
             with a:
-                st.markdown(f"#### {rank}. {r['name']}")
+                st.markdown(f'<div class="sh-rank">MATCH {rank:02d} · 추천 순위</div>', unsafe_allow_html=True)
+                st.markdown(f"#### {r['name']}")
                 st.markdown(f'<div class="sh-muted">{html.escape(r["address"])} · {r["kind"]} · {r["area"]}㎡'
                             f' · {s["cond"]["gate"]} 도보 {r[rc.GATES[s["cond"]["gate"]]]}분</div>',
                             unsafe_allow_html=True)
@@ -396,18 +474,29 @@ elif step == 2:
                 line.append(badge(cc.RISK, f"계약 위험 {flags[cc.RISK]}"))
             if flags[cc.CAUTION]:
                 line.append(badge(cc.CAUTION, f"주의 {flags[cc.CAUTION]}"))
-            if not flags[cc.RISK] and not flags[cc.CAUTION]:
+            if flags[cc.UNKNOWN]:
+                line.append(badge(cc.UNKNOWN, f"확인 필요 {flags[cc.UNKNOWN]}"))
+            if not flags[cc.RISK] and not flags[cc.CAUTION] and not flags[cc.UNKNOWN]:
                 line.append(badge(cc.OK, "계약 위험 신호 없음"))
             if mk["diff"] is not None:
                 line.append(f'<span class="sh-muted">주변 {r["kind"]} 실거래 시세 대비 {mk["diff"]:+.0%}</span>')
             st.markdown("".join(line), unsafe_allow_html=True)
-            st.markdown(f'<div style="margin-top:8px">{html.escape(" · ".join(reasons))}</div>',
+            st.markdown(f'<div class="sh-reasons"><b>이 집을 추천하는 이유</b><br>{html.escape(" · ".join(reasons))}</div>',
                         unsafe_allow_html=True)
+            if weak:
+                st.caption("함께 고려하세요 · " + " · ".join(weak))
+            with st.expander("추천 점수와 시세 기준 보기"):
+                st.caption(f"추천 점수 {item['score'] * 100:.1f} / 100 · 이번 검색 결과 안에서의 상대 점수예요. 계약 안전도를 의미하지 않아요.")
+                st.caption("적용 가중치 · " + " · ".join(f"{k} {v:.0%}" for k, v in weights.items()))
+                st.caption(mk["detail"])
             st.button("계약서 점검하기", key=f"pick_{r['id']}", on_click=open_contract, args=(r["id"],),
-                      type="primary" if flags[cc.RISK] else "secondary")
+                      type="primary", use_container_width=True)
 
 # ── 3 계약 점검 ───────────────────────────────────────────────
 else:
+    st.markdown('<div class="sh-kicker">03 / 계약 전 한 번 더</div>', unsafe_allow_html=True)
+    st.markdown("### 내 보증금, 계약 전에 살펴봐요")
+    st.caption("문서에 표시된 번호와 아래 설명을 함께 확인해 주세요.")
     _, ranked, _ = results()
     ids = [it["row"]["id"] for it in ranked]
     if st.session_state.sel_listing not in ids:
@@ -460,12 +549,12 @@ else:
         st.markdown("**등기부 요약**")
         st.markdown(doc_html(registry_text, hl["marks"]["registry"], note_status), unsafe_allow_html=True)
 
-    st.markdown("#### 표시된 부분")
+    st.markdown("#### 계약 전에 짚어 볼 내용")
     if not hl["notes"]:
         st.markdown("계약서와 등기에서 위험·주의로 표시할 부분이 없어요. 계약 당일 최신 등기부등본은 한 번 더 확인하세요.")
     for n in hl["notes"]:
         label, color, bg = TONE[n["status"]]
-        with st.container(border=True):
+        with st.container(border=True, key=f"note_{n['no']}"):
             st.markdown(f'<span class="sh-no" style="background:{color};margin-left:0">{n["no"]}</span> '
                         f'{badge(n["status"])}<b>{html.escape(n["title"])}</b>', unsafe_allow_html=True)
             st.markdown(html.escape(n["detail"]))
@@ -494,3 +583,9 @@ else:
             st.text_area("계약서", contracts[lid], height=360, key=f"ct_{lid}")
         with e2:
             st.text_area("등기부 요약", registries[lid], height=360, key=f"rg_{lid}")
+
+
+st.markdown('<footer class="sh-footer"><b>Safe Home</b> · 처음 자취하는 당신을 위한 작은 길잡이<br>'
+            '시연용 서비스예요. 매물·계약서·등기는 가상 샘플이며, 시세 비교는 국토교통부 실거래 자료를 사용해요.<br>'
+            '계약 점검은 문서의 규칙 기반 위험 신호 안내예요. 실제 계약 전에는 최신 서류와 전문가 확인이 필요해요.</footer>',
+            unsafe_allow_html=True)

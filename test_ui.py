@@ -1,0 +1,83 @@
+"""UI flow regression checks. Run: python -m unittest test_ui.py
+
+Gemini is mocked; tests do not need credentials or spend API quota.
+"""
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+from streamlit.testing.v1 import AppTest
+
+import ai_parse
+
+
+class SafeHomeFlowTests(unittest.TestCase):
+    def setUp(self):
+        self.app = AppTest.from_file(str(Path(__file__).with_name('app.py'))).run()
+        self.assertFalse(self.app.exception)
+
+    def click(self, label):
+        next(b for b in self.app.button if b.label == label).click().run()
+        self.assertFalse(self.app.exception)
+
+    def test_manual_search_navigation_and_document_edit(self):
+        self.app.number_input(key='f_rent').set_value(40)
+        self.app.slider(key='f_walk').set_value(10)
+        self.app.multiselect(key='f_opts').set_value(['세탁기'])
+        with patch.object(ai_parse, 'request_parse') as parse:
+            self.click('이 조건으로 찾기')
+            parse.assert_not_called()
+        self.assertEqual(self.app.session_state.step, 2)
+        self.assertEqual(self.app.session_state.searched['cond']['max_rent'], 400_000)
+        self.assertEqual(self.app.session_state.searched['cond']['options'], ['세탁기'])
+        picks = [b for b in self.app.button if b.label == '계약서 점검하기']
+        self.assertEqual(len(picks), 5)
+        unknown_badges = [m.value for m in self.app.markdown if '확인 필요 3' in m.value]
+        self.assertTrue(unknown_badges)
+        self.assertTrue(all('계약 위험 신호 없음' not in value for value in unknown_badges))
+        picks[0].click().run()
+        self.assertFalse(self.app.exception)
+        self.assertEqual(self.app.session_state.step, 3)
+        lid = self.app.session_state.sel_listing
+        self.app.text_area(key=f'ct_{lid}').set_value('임대차계약서\n임대인: 가상 소유자').run()
+        self.assertFalse(self.app.exception)
+        self.assertTrue(any('확인 필요' in m.value for m in self.app.markdown))
+        self.click('← 추천 목록')
+        self.click('조건 바꾸기')
+        self.assertEqual(self.app.number_input(key='f_rent').value, 40)
+        self.assertEqual(self.app.multiselect(key='f_opts').value, ['세탁기'])
+
+    def test_ai_search_and_fallback(self):
+        self.app.text_input(key='sentence').set_value('정문 10분 월세 40 원룸 세탁기')
+        with patch.object(ai_parse, 'request_parse', return_value=(
+            {'max_rent_manwon': 40, 'max_walk_min': 10, 'kinds': ['원룸'], 'options': ['세탁기']}, None
+        )) as parse:
+            self.click('내 방 찾기 →')
+            parse.assert_called_once()
+        self.assertEqual(self.app.session_state.ai_calls, 1)
+        self.assertEqual(self.app.session_state.step, 2)
+        self.assertEqual(self.app.session_state.searched['cond']['kinds'], ['원룸'])
+        self.click('조건 바꾸기')
+        self.app.text_input(key='sentence').set_value('월세 35 정문 10분')
+        with patch.object(ai_parse, 'request_parse', return_value=(None, '연결 실패 · 간단 해석으로 검색해요.')):
+            self.click('내 방 찾기 →')
+        self.assertEqual(self.app.session_state.searched['cond']['max_rent'], 350_000)
+        self.assertIn('연결 실패', self.app.session_state.ai_note)
+
+    def test_empty_results_and_session_limit(self):
+        self.app.number_input(key='f_rent').set_value(10)
+        self.app.slider(key='f_walk').set_value(5)
+        self.click('이 조건으로 찾기')
+        self.assertTrue(any('조건에 맞는 집이 없어요' in i.value for i in self.app.info))
+        self.click('조건 바꾸기')
+        self.app.session_state.ai_calls = ai_parse.SESSION_LIMIT
+        self.app.text_input(key='sentence').set_value('월세 40 정문 10분')
+        with patch.object(ai_parse, 'request_parse') as parse:
+            self.click('내 방 찾기 →')
+            parse.assert_not_called()
+        self.assertEqual(self.app.session_state.searched['cond']['max_rent'], 400_000)
+        self.assertEqual(self.app.session_state.step, 2)
+
+
+if __name__ == '__main__':
+    unittest.main()
