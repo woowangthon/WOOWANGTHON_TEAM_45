@@ -32,7 +32,7 @@ class SafeHomeFlowTests(unittest.TestCase):
         self.assertEqual(self.app.session_state.searched['cond']['options'], ['세탁기'])
         picks = [b for b in self.app.button if b.label == '계약서 점검하기']
         self.assertEqual(len(picks), 5)
-        unknown_badges = [m.value for m in self.app.markdown if '확인 필요 3' in m.value]
+        unknown_badges = [m.value for m in self.app.markdown if '확인 필요 4' in m.value]
         self.assertTrue(unknown_badges)
         self.assertTrue(all('계약 위험 신호 없음' not in value for value in unknown_badges))
         picks[0].click().run()
@@ -62,6 +62,37 @@ class SafeHomeFlowTests(unittest.TestCase):
             self.click('내 방 찾기 →')
         self.assertEqual(self.app.session_state.searched['cond']['max_rent'], 350_000)
         self.assertIn('연결 실패', self.app.session_state.ai_note)
+
+    def test_new_sentence_search_does_not_keep_old_conditions(self):
+        self.app.text_input(key='sentence').set_value('월세 40 세탁기 원룸')
+        with patch.object(ai_parse, 'request_parse', return_value=(None, '연결 실패')):
+            self.click('내 방 찾기 →')
+        self.assertEqual(self.app.session_state.searched['cond']['options'], ['세탁기'])
+        self.click('조건 바꾸기')
+        self.app.text_input(key='sentence').set_value('월세 50 정문 10분')
+        with patch.object(ai_parse, 'request_parse', return_value=(None, '연결 실패')):
+            self.click('내 방 찾기 →')
+        cond = self.app.session_state.searched['cond']
+        self.assertEqual(cond['options'], [])
+        self.assertEqual(cond['kinds'], ['원룸', '투룸', '오피스텔'])
+        self.assertEqual(cond['max_rent'], 500_000)
+
+    def test_sentence_deposit_is_kept_exactly(self):
+        for text, expected in (('보증금 1200만 월세 50', 12_000_000), ('보증금 3000만 월세 50', 30_000_000),
+                               ('보증금 1000만 월세 50', 10_000_000)):
+            self.app.text_input(key='sentence').set_value(text)
+            with patch.object(ai_parse, 'request_parse', return_value=(None, '연결 실패')):
+                self.click('내 방 찾기 →')
+            self.assertEqual(self.app.session_state.searched['cond']['max_deposit'], expected)
+            self.click('조건 바꾸기')
+            self.assertEqual(self.app.selectbox(key='f_dep').value, f'{expected // 10_000:,}만 원')
+
+    def test_risky_listings_get_warning(self):
+        self.click('이 조건으로 찾기')
+        badges = [m.value for m in self.app.markdown if m.value.startswith('<span class="sh-badge"')]
+        risky = sum('계약 위험 ' in b and '계약 위험 신호 없음' not in b for b in badges)
+        self.assertGreater(risky, 0, '기본 검색 상위 5곳에 위험 사례가 있어야 경고를 확인할 수 있어요')
+        self.assertEqual(sum('계약 위험 신호' in e.value for e in self.app.error), risky)
 
     def test_empty_results_and_session_limit(self):
         self.app.number_input(key='f_rent').set_value(10)
