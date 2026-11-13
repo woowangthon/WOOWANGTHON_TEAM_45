@@ -20,7 +20,7 @@ class SafeHomeFlowTests(unittest.TestCase):
         next(b for b in self.app.button if b.label == label).click().run()
         self.assertFalse(self.app.exception)
 
-    def test_manual_search_navigation_and_document_edit(self):
+    def test_manual_search_navigation_and_contract_view(self):
         self.app.number_input(key='f_rent').set_value(40)
         self.app.slider(key='f_walk').set_value(10)
         self.app.multiselect(key='f_opts').set_value(['세탁기'])
@@ -38,10 +38,9 @@ class SafeHomeFlowTests(unittest.TestCase):
         picks[0].click().run()
         self.assertFalse(self.app.exception)
         self.assertEqual(self.app.session_state.step, 3)
-        lid = self.app.session_state.sel_listing
-        self.app.text_area(key=f'ct_{lid}').set_value('임대차계약서\n임대인: 가상 소유자').run()
-        self.assertFalse(self.app.exception)
-        self.assertTrue(any('확인 필요' in m.value for m in self.app.markdown))
+        self.assertEqual(len(self.app.text_area), 0)
+        self.assertTrue(any('계약서' in m.value for m in self.app.markdown))
+        self.assertTrue(any('계약 전에 짚어 볼 내용' in m.value for m in self.app.markdown))
         self.click('← 추천 목록')
         self.click('조건 바꾸기')
         self.assertEqual(self.app.number_input(key='f_rent').value, 40)

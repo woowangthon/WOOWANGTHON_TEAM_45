@@ -509,8 +509,8 @@ else:
                      label_visibility="collapsed")
     lid = st.session_state.sel_listing
     row = by_id[lid]
-    contract_text = st.session_state.get(f"ct_{lid}", contracts[lid])
-    registry_text = st.session_state.get(f"rg_{lid}", registries[lid])
+    contract_text = contracts[lid]
+    registry_text = registries[lid]
 
     res = cc.check(contract_text, registry_text)
     hl = cc.highlights(res)
@@ -572,17 +572,6 @@ else:
         st.markdown(f'<div class="sh-muted" style="margin-top:8px">문제없는 항목: {html.escape(", ".join(ok))}</div>',
                     unsafe_allow_html=True)
 
-    st.markdown("#### 집주인·중개사에게 보낼 문자")
-    st.text_area("문자 초안", cc.message_draft(row["name"], res["questions"]), height=200,
-                 key=f"msg_{lid}_{hash(contract_text + registry_text)}", label_visibility="collapsed")
-
-    with st.expander("계약서·등기 내용 직접 고치기"):
-        st.caption("내용을 고치면 위의 표시가 바로 다시 계산돼요. 실제 계약서·개인정보는 넣지 마세요.")
-        e1, e2 = st.columns(2)
-        with e1:
-            st.text_area("계약서", contracts[lid], height=360, key=f"ct_{lid}")
-        with e2:
-            st.text_area("등기부 요약", registries[lid], height=360, key=f"rg_{lid}")
 
 
 st.markdown('<footer class="sh-footer"><b>Safe Home</b> · 처음 자취하는 당신을 위한 작은 길잡이<br>'
