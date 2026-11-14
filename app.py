@@ -86,7 +86,7 @@ h3 { font-size:1.5rem !important; }
 .sh-logo-icon { display:grid; place-items:center; width:36px; height:36px; border-radius:8px; background:#087f65; color:white; font-size:22px; }
 .sh-campus { font-size:.8125rem; color:#466357; }
 .sh-hero { padding:24px 28px; border-radius:12px; background:#163e34; color:white; }
-.sh-hero h1 { color:white; font-size:2rem !important; line-height:1.35; margin:0 0 8px; padding:0; }
+.sh-hero h1 { color:white; font-size:2.6rem !important; line-height:1.35; margin:0 0 8px; padding:0; }
 .sh-hero p { color:#d0e3d9; font-size:1rem; line-height:1.6; margin:0; }
 .sh-intro { margin:8px 0 0; }
 .sh-intro h2 { font-size:1.5rem; margin:0 0 6px; padding:0; }
@@ -116,7 +116,7 @@ h3 { font-size:1.5rem !important; }
 @media(max-width:680px) {
   .block-container { padding:1rem 1rem 3rem; }
   .sh-hero { padding:18px 20px; border-radius:8px; }
-  .sh-hero h1 { font-size:1.5rem !important; }
+  .sh-hero h1 { font-size:1.9rem !important; }
   .sh-hero p { font-size:.875rem; }
   .sh-campus { font-size:.8125rem; }
   .sh-brand { align-items:baseline; }
@@ -346,7 +346,10 @@ def display_text(value):
     """Mask sample personal names on screen without altering analysis inputs."""
     text = str(value)
     for name in (*db_seed.LESSORS, "오대리", "강다른"):
-        text = text.replace(name, name[0] + "○○")
+        masked = name[0] + "○○"
+        # 조사는 가린 이름(○○) 기준으로 맞춤: '김가상'과 → '김○○'와
+        text = text.replace(f"{name}'과", f"{masked}'와").replace(f"{name}'이 ", f"{masked}'가 ")
+        text = text.replace(name, masked)
     return text
 
 
@@ -523,8 +526,8 @@ step = st.session_state.step
 # ── 1 집 찾기 ─────────────────────────────────────────────────
 if step == 1:
     st.markdown("""<section class="sh-hero">
-<h1>청주 대학가 방 추천과 계약 점검</h1>
-<p>예산과 통학 조건으로 비교하고, 계약 전 확인 사항을 살펴봅니다.</p></section>""", unsafe_allow_html=True)
+<h1>Safe Home, 안전한 첫 자취의 시작</h1>
+<p>충북대 근처 방 추천과 계약 점검</p></section>""", unsafe_allow_html=True)
     st.markdown('<div class="sh-intro"><h2>조건 입력</h2></div>', unsafe_allow_html=True)
     with st.container(border=True, key="search_card"):
         q1, q2 = st.columns([5, 1], vertical_alignment="bottom")

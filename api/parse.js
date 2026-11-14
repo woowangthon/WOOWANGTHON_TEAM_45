@@ -285,10 +285,10 @@ const memoryLimiter = {
 
 const LIMIT_MESSAGES = {
   per_minute: "검색을 너무 자주 했습니다. 1분 뒤에 다시 시도하십시오.",
-  daily_ip: "오늘 문장 검색 횟수를 모두 사용했습니다. 「세부 조건」로 검색하십시오.",
-  global_minute: "지금 이용자가 많아요. 간단 해석으로 검색합니다.",
-  global_tokens: "지금 이용자가 많아요. 간단 해석으로 검색합니다.",
-  cooldown: "지금 이용자가 많아요. 간단 해석으로 검색합니다.",
+  daily_ip: "오늘 문장 검색 횟수를 모두 사용했습니다. 「세부 조건」으로 검색하십시오.",
+  global_minute: "지금 이용자가 많습니다. 간단 해석으로 검색합니다.",
+  global_tokens: "지금 이용자가 많습니다. 간단 해석으로 검색합니다.",
+  cooldown: "지금 이용자가 많습니다. 간단 해석으로 검색합니다.",
   daily_total: "오늘 문장 검색 한도에 도달했습니다. 간단 해석으로 검색합니다.",
   limit_unavailable: "지금은 AI 사용량을 확인할 수 없습니다. 간단 해석으로 검색합니다.",
 };
@@ -440,7 +440,7 @@ function sanitize(o) {
 
 const ERROR_MESSAGES = {
   no_key: "AI 연결을 사용할 수 없습니다. 규칙 해석으로 검색합니다.",
-  gemini_quota: "지금 이용자가 많아요. 간단 해석으로 검색합니다.",
+  gemini_quota: "지금 이용자가 많습니다. 간단 해석으로 검색합니다.",
   gemini_timeout: "AI 응답이 지연되고 있습니다. 규칙 해석으로 대신합니다.",
 };
 

@@ -336,7 +336,7 @@ def check(contract_text, registry_text, today=None, kind=None, ai_items=None):
                            "소유자 본인의 인감이 찍힌 위임장과 인감증명서를 확인하고, 소유자와 직접 통화할 수 있습니까?"))
     else:
         items.append(_item("owner", "임대인·소유자 일치", RISK,
-                           f"계약서 임대인 '{c['lessor']}'와 등기 소유자 '{r['owner']}'가 다릅니다.",
+                           f"계약서 임대인 '{c['lessor']}'{_wa(c['lessor'])} 등기 소유자 '{r['owner']}'{_ga(r['owner'])} 다릅니다.",
                            c["lines"].get("lessor"), "소유자가 아닌 분과 계약하는 이유와 권한을 증명할 서류가 있습니까?"))
 
     # 2. 보증금 회수 위험 비율 = (근저당 채권최고액 + 선순위 보증금 + 내 보증금) ÷ 시세
@@ -487,6 +487,16 @@ def collect_questions(items, checklist_items=()):
 
 
 # ── 직접 확인할 서류·현장 체크리스트 ──────────────────────────
+def _has_batchim(word):
+    ch = (word or "").strip()[-1:]
+    return "가" <= ch <= "힣" and (ord(ch) - 0xAC00) % 28 != 0
+
+
+def _ga(word):
+    """받침이 있으면 '이', 없으면 '가' (예: 김가상이, 이영희가)."""
+    return "이" if _has_batchim(word) else "가"
+
+
 def _wa(word):
     """받침이 있으면 '과', 없으면 '와' (예: 김가상과, 이영희와)."""
     ch = (word or "").strip()[-1:]
