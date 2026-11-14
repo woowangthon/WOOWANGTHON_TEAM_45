@@ -306,6 +306,7 @@ const PROMPT = `너는 충북대 근처 자취방 검색 조건을 뽑는 도우
 - options: 필수 옵션. ${OPTIONS.join("/")} 중에서만
 - priorities: 중요하게 여기는 것. ${FACTORS.join("/")} 중에서만, 문장에 나온 순서대로.
   예) 조용한/소음 적은 → 조용함, 싼/저렴/가성비 → 가격, 학교 가까운 → 거리, 넓은 → 넓이, 밝은/햇빛 → 채광, 관리비 적은 → 관리비
+- exclude_contract_risk: 계약 위험이 있는 매물을 빼 달라고 했으면 true. 예) "계약 위험 있는 거 빼줘", "위험한 집 말고", "안전한 집만", "사기 위험 없는 방" → true. 말하지 않았으면 false
 
 사용자 문장:
 `;
@@ -321,8 +322,9 @@ const SCHEMA = {
     kinds: { type: "ARRAY", items: { type: "STRING", enum: KINDS } },
     options: { type: "ARRAY", items: { type: "STRING", enum: OPTIONS } },
     priorities: { type: "ARRAY", items: { type: "STRING", enum: FACTORS } },
+    exclude_contract_risk: { type: "BOOLEAN" },
   },
-  required: ["max_rent_manwon", "min_rent_manwon", "max_deposit_manwon", "max_walk_min", "gate", "kinds", "options", "priorities"],
+  required: ["max_rent_manwon", "min_rent_manwon", "max_deposit_manwon", "max_walk_min", "gate", "kinds", "options", "priorities", "exclude_contract_risk"],
 };
 
 // ── 특약 설명 (11/13 회의: AI는 확인할 문구 후보 + 쉬운 설명 + 질문. 안전·효력은 판단하지 않음) ──
@@ -438,6 +440,7 @@ function sanitize(o) {
     kinds: pick(o?.kinds, KINDS),
     options: pick(o?.options, OPTIONS),
     priorities: pick(o?.priorities, FACTORS),
+    exclude_contract_risk: o?.exclude_contract_risk === true,
   };
 }
 

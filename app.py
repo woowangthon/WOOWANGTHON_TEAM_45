@@ -282,7 +282,7 @@ def find_by_sentence():
         else:
             st.session_state.ai_note = None
         cond, understood = rc.cond_from_ai(fields) if fields is not None else rc.parse_sentence(sentence)
-        if rc.wants_safe_only(sentence):  # "위험 없는 집", "안전한 집" → 계약 위험 매물 제외 (AI·규칙 공통)
+        if cond.get("safe_only") or rc.wants_safe_only(sentence):  # AI가 읽었거나 규칙 키워드에 걸리면
             cond["safe_only"] = True
             understood = understood + ["계약 위험 매물 제외"]
         reset_inputs()

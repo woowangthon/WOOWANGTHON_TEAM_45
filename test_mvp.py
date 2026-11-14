@@ -284,6 +284,13 @@ def test_rent_range(rows):
     # 계약 위험 매물 제외 조건 (문장에서 읽기)
     assert rc.wants_safe_only("위험 없는 원룸") and rc.wants_safe_only("위험한 곳 빼고 월세 40")
     assert rc.wants_safe_only("안전한 집") and not rc.wants_safe_only("월세 40 정문 10분")
+    for txt in ("계약위험있는 거 빼줘", "계약 위험 있는 매물 제외", "위험 매물 말고", "위험 있는 매물 걸러줘",
+                "계약 위험 있는 건 안 나오게"):
+        assert rc.wants_safe_only(txt), txt
+    for txt in ("위험 신호 확인", "위험한 집 보여줘", "계약 위험이 뭐야"):
+        assert not rc.wants_safe_only(txt), txt
+    assert rc.cond_from_ai({"exclude_contract_risk": True})[0].get("safe_only") is True
+    assert "safe_only" not in rc.cond_from_ai({"exclude_contract_risk": "true"})[0]
     print("[14] 계약 위험 매물 제외: 문장 읽기 OK")
 
 

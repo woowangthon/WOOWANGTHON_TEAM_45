@@ -90,11 +90,12 @@ def parse_sentence(text):
     return cond, understood
 
 
-SAFE_ONLY_WORDS = r"위험[한이]?\s*(곳|집|매물|방)?[은는]?\s*(없|빼|제외)|안전한\s*(집|방|매물|곳)"
+SAFE_ONLY_WORDS = (r"위험(?:\s*신호)?\s*(?:이|가)?\s*(?:있는|한|높은|큰)?\s*(?:거|건|것|곳|집|매물|방|데)?\s*[은는을를]?\s*"
+                   r"(?:없|빼|뺀|제외|말고|거르|걸러|안\s*나오|안\s*보이)|안전한\s*(?:집|방|매물|곳)|위험\s*(?:없|0)")
 
 
 def wants_safe_only(text):
-    """'위험 없는 집', '위험한 곳 빼고', '안전한 방' → 계약 위험 매물 제외."""
+    """'위험 없는 집', '계약 위험 있는 거 빼줘', '위험한 곳 말고', '안전한 방' → 계약 위험 매물 제외."""
     return bool(re.search(SAFE_ONLY_WORDS, text or ""))
 
 
@@ -116,6 +117,8 @@ def cond_from_ai(fields):
         return out
 
     cond, understood = {}, []
+    if f.get("exclude_contract_risk") is True:
+        cond["safe_only"] = True
     rent = num("max_rent_manwon", 1, 500)
     rent_lo = num("min_rent_manwon", 1, 500)
     if rent and rent_lo and rent_lo > rent:
