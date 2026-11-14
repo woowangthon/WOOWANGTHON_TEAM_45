@@ -20,9 +20,11 @@ import db_seed
 import recommend as rc
 
 DB_PATH = Path(__file__).with_name("safehome.db")
-# 3D 방 모델: Scaniverse(휴대폰 3D 스캔 앱)로 찍은 방을 GLB 파일로 저장해 둔 것
+# 3D 방 모델: KIRI Engine(휴대폰 3D 스캔 앱)으로 찍은 집을 GLB 파일로 저장하고 웹용으로 줄인 것
 ASSETS = Path(__file__).with_name("assets")
 ROOM_GLB = "room_scan.glb"
+# 방 안에서 둘러보는 시점: 스캔 모델 좌표 기준 방 한가운데·눈높이 (모델을 바꾸면 같이 맞춰야 함)
+ROOM_INSIDE_TARGET = "1.4m -0.5m 0.8m"
 MODEL_VIEWER_CDN = "https://cdn.jsdelivr.net/npm/@google/model-viewer@4.1.0/dist/model-viewer.min.js"
 
 st.set_page_config(page_title="Safe Home", page_icon="🏠", layout="wide",
@@ -240,13 +242,7 @@ def find_by_sentence():
             st.session_state.ai_calls += 1
             fields, note = ai_parse.request_parse(sentence)
             st.session_state.limits = ai_parse.last_limits or st.session_state.limits
-        if fields is None:
-            note = note or ""
-            if "간단 해석" not in note and "규칙 해석" not in note:
-                note = (note + " 이번 검색은 AI 대신 간단 해석으로 찾았어요.").strip()
-            st.session_state.ai_note = note
-        else:
-            st.session_state.ai_note = None
+        st.session_state.ai_note = note
         cond, understood = rc.cond_from_ai(fields) if fields is not None else rc.parse_sentence(sentence)
         reset_inputs()
         st.session_state.adjusted = fill_inputs(cond)
@@ -417,13 +413,43 @@ def room_3d(height=440):
                   background: radial-gradient(circle at 50% 40%, #f4f5f7, #d9dce1); }}
   .hint {{ position: absolute; left: 12px; bottom: 12px; padding: 4px 10px; border-radius: 999px;
            font-size: 12px; color: #fff; background: rgba(0,0,0,0.45); }}
+  .views {{ position: absolute; right: 10px; top: 10px; display: flex; gap: 6px; }}
+  .views button {{ border: 0; border-radius: 999px; padding: 6px 12px; font-size: 13px; cursor: pointer;
+                   color: #1f2d27; background: rgba(255,255,255,0.85); box-shadow: 0 1px 4px rgba(0,0,0,0.2); }}
+  .views button.on {{ color: #fff; background: #1f6f54; }}
 </style>
-<model-viewer src="{src}" alt="자취방 3D 스캔 모델" camera-controls touch-action="pan-y"
-              auto-rotate auto-rotate-delay="1500" rotation-per-second="18deg" interaction-prompt="none"
-              shadow-intensity="0.6" exposure="1.05" camera-orbit="35deg 65deg auto">
+<model-viewer id="room" src="{src}" alt="자취방 3D 스캔 모델" camera-controls touch-action="pan-y"
+              auto-rotate auto-rotate-delay="3000" rotation-per-second="10deg" interaction-prompt="none"
+              exposure="1.05" camera-target="{ROOM_INSIDE_TARGET}" camera-orbit="0deg 90deg 0.2m"
+              min-camera-orbit="auto 60deg 0.2m" max-camera-orbit="auto 115deg 0.2m"
+              field-of-view="85deg" min-field-of-view="85deg" max-field-of-view="85deg">
   <div class="hint" slot="poster">3D 방 불러오는 중…</div>
-  <div class="hint">드래그로 돌리기 · 휠/두 손가락으로 확대</div>
+  <div class="hint" id="hint">드래그로 방 안을 둘러보기</div>
+  <div class="views">
+    <button id="in" class="on" type="button">방 안에서</button>
+    <button id="out" type="button">밖에서</button>
+  </div>
 </model-viewer>
+<script>
+  const mv = document.getElementById("room"), hint = document.getElementById("hint");
+  const views = {{
+    in: {{ target: "{ROOM_INSIDE_TARGET}", orbit: "0deg 90deg 0.2m", min: "auto 60deg 0.2m",
+          max: "auto 115deg 0.2m", fov: "85deg", speed: "10deg", hint: "드래그로 방 안을 둘러보기" }},
+    out: {{ target: "auto auto auto", orbit: "35deg 65deg auto", min: "auto auto auto",
+           max: "auto auto auto", fov: "auto", speed: "18deg", hint: "드래그로 돌리기 · 두 손가락으로 확대" }},
+  }};
+  function show(name) {{
+    const v = views[name];
+    mv.minCameraOrbit = v.min; mv.maxCameraOrbit = v.max;
+    mv.minFieldOfView = v.fov === "auto" ? "10deg" : v.fov; mv.maxFieldOfView = v.fov;
+    mv.fieldOfView = v.fov; mv.cameraTarget = v.target; mv.cameraOrbit = v.orbit;
+    mv.rotationPerSecond = v.speed; mv.jumpCameraToGoal(); hint.textContent = v.hint;
+    document.getElementById("in").classList.toggle("on", name === "in");
+    document.getElementById("out").classList.toggle("on", name === "out");
+  }}
+  document.getElementById("in").onclick = () => show("in");
+  document.getElementById("out").onclick = () => show("out");
+</script>
 """, height=height)
     return True
 
@@ -615,7 +641,7 @@ else:
 
     with st.expander("🧊 3D로 방 둘러보기", expanded=True):
         if room_3d():
-            st.caption("휴대폰 3D 스캔 앱(Scaniverse)으로 실제 자취방을 찍은 시연용 모델이에요. "
+            st.caption("휴대폰 3D 스캔 앱(KIRI Engine)으로 실제 집을 찍은 시연용 모델이에요. "
                        "가상 매물과 같은 방은 아니고, 집을 직접 가기 전에 구조·크기를 미리 보는 기능을 보여 주는 예시예요.")
         else:
             st.caption("3D 모델 파일(assets/room_scan.glb)을 찾지 못했어요.")
