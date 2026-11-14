@@ -44,10 +44,22 @@ def parse_sentence(text):
     읽지 못한 값은 넣지 않는다(추측 금지). understood: 화면에 띄울 '이해한 조건' 목록."""
     t = text or ""
     cond, understood = {}, []
-    m = re.search(r"월\s*세\s*(\d+(?:\.\d+)?)\s*(만)?", t)
+    # 월세 범위: "월세 30~40", "월세 30만 원에서 40만 원", "월세 30 이상", "월세 40 이하"
+    num = r"(\d+(?:\.\d+)?)\s*(만)?\s*(?:원)?"
+    m = re.search(r"월\s*세\s*" + num + r"\s*(?:~|∼|-|에서|부터)\s*" + num, t)
+    m_lo = re.search(r"월\s*세\s*" + num + r"\s*(?:이상|넘는|부터)", t)
     if m:
-        cond["max_rent"] = _won(m.group(1), m.group(2))
-        understood.append(f"월세 {cond['max_rent'] // 10_000}만 원 이하")
+        lo, hi = sorted((_won(m.group(1), m.group(2)), _won(m.group(3), m.group(4) or m.group(2))))
+        cond["min_rent"], cond["max_rent"] = lo, hi
+        understood.append(f"월세 {lo // 10_000}~{hi // 10_000}만 원")
+    elif m_lo:
+        cond["min_rent"] = _won(m_lo.group(1), m_lo.group(2))
+        understood.append(f"월세 {cond['min_rent'] // 10_000}만 원 이상")
+    else:
+        m = re.search(r"월\s*세\s*" + num, t)
+        if m:
+            cond["max_rent"] = _won(m.group(1), m.group(2))
+            understood.append(f"월세 {cond['max_rent'] // 10_000}만 원 이하")
     m = re.search(r"보증금\s*(\d+(?:\.\d+)?)\s*(만|천)?", t)
     if m:
         n, u = float(m.group(1)), m.group(2)
@@ -96,9 +108,19 @@ def cond_from_ai(fields):
 
     cond, understood = {}, []
     rent = num("max_rent_manwon", 1, 500)
+    rent_lo = num("min_rent_manwon", 1, 500)
+    if rent and rent_lo and rent_lo > rent:
+        rent, rent_lo = rent_lo, rent
     if rent:
         cond["max_rent"] = rent * 10_000
+    if rent_lo:
+        cond["min_rent"] = rent_lo * 10_000
+    if rent and rent_lo:
+        understood.append(f"월세 {rent_lo}~{rent}만 원")
+    elif rent:
         understood.append(f"월세 {rent}만 원 이하")
+    elif rent_lo:
+        understood.append(f"월세 {rent_lo}만 원 이상")
     dep = num("max_deposit_manwon", 1, 100_000)
     if dep:
         cond["max_deposit"] = dep * 10_000
@@ -145,6 +167,8 @@ def filter_listings(rows, cond):
     out = []
     for r in rows:
         if cond.get("max_rent") and r["rent"] > cond["max_rent"]:
+            continue
+        if cond.get("min_rent") and r["rent"] < cond["min_rent"]:
             continue
         if cond.get("max_deposit") and r["deposit"] > cond["max_deposit"]:
             continue

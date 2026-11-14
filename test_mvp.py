@@ -261,6 +261,24 @@ def test_review_fixes():
     print("\n[12] 검토 반영: 모르는 특약·압류 누락 → 확인 필요, 계약 위험 매물은 순위 유지 + 경고")
 
 
+def test_rent_range(rows):
+    """11/14: 월세 하한·상한 (문장 해석, AI 답 검사, 필터)."""
+    c, u = rc.parse_sentence("월세 30~40 정문 15분")
+    assert c["min_rent"] == 300_000 and c["max_rent"] == 400_000 and u[0] == "월세 30~40만 원"
+    c, _ = rc.parse_sentence("월세 30만 원에서 40만 원 원룸")
+    assert (c["min_rent"], c["max_rent"]) == (300_000, 400_000)
+    c, _ = rc.parse_sentence("월세 30만원 이상")
+    assert c == {"min_rent": 300_000}
+    c, _ = rc.parse_sentence("월세 35만 원 이하")
+    assert c == {"max_rent": 350_000}
+    c, _ = rc.cond_from_ai({"max_rent_manwon": 30, "min_rent_manwon": 40})  # 거꾸로 와도 바로잡음
+    assert (c["min_rent"], c["max_rent"]) == (300_000, 400_000)
+    hits = rc.filter_listings(rows, {"min_rent": 300_000, "max_rent": 350_000})
+    assert hits and all(300_000 <= r["rent"] <= 350_000 for r in hits)
+    assert len(rc.filter_listings(rows, {"max_rent": 350_000})) >= len(hits)
+    print("\n[13] 월세 하한·상한: 문장·AI·필터 OK")
+
+
 if __name__ == "__main__":
     db = Path(tempfile.mkdtemp()) / "test.db"
     db_seed.build(db)
@@ -275,4 +293,5 @@ if __name__ == "__main__":
     test_limits()
     test_meeting_1113(rows, docs, regs)
     test_review_fixes()
+    test_rent_range(rows)
     print("\n모든 테스트 통과 ✅")

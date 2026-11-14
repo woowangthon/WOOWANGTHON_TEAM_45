@@ -162,14 +162,14 @@ rows, contracts, registries, market = load_data()
 by_id = {r["id"]: r for r in rows}
 
 # ── 상태 ──────────────────────────────────────────────────────
-DEFAULTS = dict(step=1, f_rent=45, f_dep="상관없음", f_gate="정문", f_walk=15,
+DEFAULTS = dict(step=1, f_rent=45, f_rent_min=0, f_dep="상관없음", f_gate="정문", f_walk=15,
                 f_kinds=list(rc.KINDS), f_opts=[], f_pri=[], f_top=5,
                 sentence="", sel_listing=rows[0]["id"], ai_calls=0, searched=None, limits=None, ai_note=None,
-                understood=None, scroll_top=False, f_dep_custom=None, adjusted=None)
+                understood=None, scroll_top=False, f_dep_custom=None, adjusted=None, show_all=False)
 for k, v in DEFAULTS.items():
     st.session_state.setdefault(k, v)
 # 다른 단계로 가서 입력칸이 화면에 없으면 Streamlit이 값을 지우므로, 매번 다시 넣어 유지한다
-for k in ("f_rent", "f_dep", "f_gate", "f_walk", "f_kinds", "f_opts", "f_pri", "f_top", "sentence", "sel_listing"):
+for k in ("f_rent", "f_rent_min", "f_dep", "f_gate", "f_walk", "f_kinds", "f_opts", "f_pri", "f_top", "sentence", "sel_listing"):
     st.session_state[k] = st.session_state[k]
 for k in [k for k in st.session_state if str(k).startswith("ck_")]:  # ③ 체크리스트 체크 상태도 유지
     st.session_state[k] = st.session_state[k]
@@ -190,7 +190,6 @@ def deposit_choices():
     out = dict(sorted(ch.items(), key=lambda kv: kv[1]))
     out["상관없음"] = None
     return out
-STEPS = {1: "1  조건 입력", 2: "2  추천 결과", 3: "3  계약서 점검"}
 
 
 def go(step):
@@ -200,14 +199,17 @@ def go(step):
 
 
 def current_condition():
-    return dict(max_rent=st.session_state.f_rent * 10_000,
+    lo, hi = st.session_state.f_rent_min, st.session_state.f_rent
+    if lo and lo > hi:  # 하한이 상한보다 크면 서로 바꿔서 검색
+        lo, hi = hi, lo
+    return dict(max_rent=hi * 10_000, min_rent=lo * 10_000 if lo else None,
                 max_deposit=deposit_choices().get(st.session_state.f_dep),
                 gate=st.session_state.f_gate, max_walk=st.session_state.f_walk,
                 kinds=list(st.session_state.f_kinds), options=list(st.session_state.f_opts),
                 priorities=list(st.session_state.f_pri))
 
 
-SEARCH_KEYS = ("f_rent", "f_dep", "f_dep_custom", "f_gate", "f_walk", "f_kinds", "f_opts", "f_pri")
+SEARCH_KEYS = ("f_rent", "f_rent_min", "f_dep", "f_dep_custom", "f_gate", "f_walk", "f_kinds", "f_opts", "f_pri")
 
 
 def reset_inputs():
@@ -225,6 +227,13 @@ def fill_inputs(cond):
         st.session_state.f_rent = max(10, min(150, want))
         if st.session_state.f_rent != want:
             adjusted.append(f"월세 {want}만 원 → {st.session_state.f_rent}만 원 (입력 범위 10~150만 원)")
+    if "min_rent" in cond:
+        want = cond["min_rent"] // 10_000
+        st.session_state.f_rent_min = max(0, min(150, want))
+        if st.session_state.f_rent_min != want:
+            adjusted.append(f"월세 하한 {want}만 원 → {st.session_state.f_rent_min}만 원 (입력 범위 0~150만 원)")
+        if "max_rent" not in cond and st.session_state.f_rent < st.session_state.f_rent_min:
+            st.session_state.f_rent = 150  # 하한만 말했으면 상한은 열어 둔다
     if "max_deposit" in cond:
         want = cond["max_deposit"]
         label = next((k for k, v in DEPOSIT_CHOICES.items() if v == want), None)
@@ -249,6 +258,7 @@ def fill_inputs(cond):
 
 
 def save_search():
+    st.session_state.show_all = False  # 새 검색은 다시 상위 몇 곳만
     st.session_state.searched = dict(cond=copy.deepcopy(current_condition()), top=st.session_state.f_top,
                                      dep_label=st.session_state.f_dep)
 
@@ -374,11 +384,12 @@ def results():
     s = st.session_state.searched
     weights = rc.blend_weights(s["cond"]["priorities"])
     hits = rc.filter_listings(rows, s["cond"])
-    return hits, rc.score_listings(hits, weights, s["cond"]["gate"])[: s["top"]], weights
+    return hits, rc.score_listings(hits, weights, s["cond"]["gate"]), weights  # 전체 점수순
 
 
 def condition_tags(c, dep_label):
-    tags = [f"월세 {c['max_rent'] // 10_000}만 원 이하",
+    tags = [f"월세 {c['min_rent'] // 10_000}~{c['max_rent'] // 10_000}만 원" if c.get("min_rent")
+            else f"월세 {c['max_rent'] // 10_000}만 원 이하",
             f"보증금 {dep_label} 이하" if c["max_deposit"] else "보증금 상관없음",
             f"{c['gate']} 도보 {c['max_walk']}분"]
     if c["kinds"] and len(c["kinds"]) < len(rc.KINDS):
@@ -501,11 +512,9 @@ def room_3d(height=440):
     return True
 
 
-# ── 헤더 · 단계 표시 ──────────────────────────────────────────
+# ── 헤더 ──────────────────────────────────────────
 st.markdown('<div class="sh-brand"><div class="sh-logo">'
             'Safe Home</div><span class="sh-campus">충북대학교 주변</span></div>', unsafe_allow_html=True)
-st.radio("단계", list(STEPS), key="step", format_func=STEPS.get, horizontal=True, label_visibility="collapsed",
-         on_change=lambda: go(st.session_state.step))  # 위 단계 버튼으로 옮겨도 맨 위로
 
 if st.session_state.scroll_top:  # 단계가 바뀌면 화면 맨 위로
     st.session_state.scroll_top = False
@@ -539,10 +548,16 @@ if step == 1:
         st.caption("입력 문장에서 조건을 추출합니다. AI 연결 실패 시 간단 해석으로 검색합니다.")
 
     with st.expander("세부 조건", expanded=True):
-        st.caption("월세 상한은 관리비를 제외한 금액입니다.")
+        st.caption("월세 하한·상한은 관리비를 제외한 금액입니다. 하한 0은 제한 없음입니다.")
         c1, c2, c3 = st.columns(3)
         with c1:
-            st.number_input("월세 상한 (만 원)", min_value=10, max_value=150, step=1, key="f_rent")
+            r1, r2 = st.columns(2)
+            with r1:
+                st.number_input("월세 하한 (만 원)", min_value=0, max_value=150, step=1, key="f_rent_min")
+            with r2:
+                st.number_input("월세 상한 (만 원)", min_value=10, max_value=150, step=1, key="f_rent")
+            if st.session_state.f_rent_min > st.session_state.f_rent:
+                st.caption("하한이 상한보다 커서 두 값을 바꿔 검색합니다.")
             st.selectbox("보증금 상한", list(deposit_choices()), key="f_dep")
         with c2:
             st.selectbox("기준 문", list(rc.GATES), key="f_gate")
@@ -560,7 +575,9 @@ if step == 1:
 # ── 2 추천 결과 ───────────────────────────────────────────────
 elif step == 2:
     s = st.session_state.searched
-    hits, ranked, weights = results()
+    hits, scored, weights = results()
+    ranked = scored[: s["top"]]  # 처음에는 상위 몇 곳만, 「더보기」를 누르면 전체
+    shown = scored if st.session_state.show_all else ranked
     top, side = st.columns([5, 1], vertical_alignment="center")
     with top:
         st.markdown(chips(condition_tags(s["cond"], s["dep_label"])), unsafe_allow_html=True)
@@ -578,8 +595,9 @@ elif step == 2:
         st.caption(f"검색 제한 · {st.session_state.ai_note}")
 
     st.markdown(f"# 추천 결과 · {len(hits)}곳")
-    st.caption(f"선택한 조건과 우선순위를 반영한 상위 {len(ranked)}곳입니다. "
-               "계약 위험 신호는 추천 순위와 별도로 표시합니다.")
+    st.caption((f"조건에 맞는 {len(hits)}곳 전체를 추천 점수순으로 보여 줍니다. " if st.session_state.show_all
+                else f"선택한 조건과 우선순위를 반영한 상위 {len(ranked)}곳입니다. ")
+               + "계약 위험 신호는 추천 순위와 별도로 표시합니다.")
     if ranked:
         lowest = min(rc.real_monthly(it["row"]) for it in ranked) / 10_000
         nearest = min(it["row"][rc.GATES[s["cond"]["gate"]]] for it in ranked)
@@ -589,7 +607,7 @@ elif step == 2:
     if not ranked:
         st.info("조건에 맞는 집이 없습니다. 월세 상한이나 도보 시간을 조금 늘리십시오.")
 
-    for rank, item in enumerate(ranked, 1):
+    for rank, item in enumerate(shown, 1):
         r = item["row"]
         res = check_listing(contracts[r["id"]], registries[r["id"]])
         flags = cc.count_flags(res)
@@ -637,6 +655,14 @@ elif step == 2:
                 st.caption(mk["detail"])
             st.button("계약서 점검", key=f"pick_{r['id']}", on_click=open_contract, args=(r["id"],),
                       type="primary", use_container_width=True)
+
+    if len(scored) > len(ranked):
+        if st.session_state.show_all:
+            st.button(f"접기 (상위 {len(ranked)}곳만 보기)", key="show_less", use_container_width=True,
+                      on_click=lambda: st.session_state.update(show_all=False))
+        else:
+            st.button(f"더보기 (나머지 {len(scored) - len(ranked)}곳 더 보기)", key="show_more",
+                      use_container_width=True, on_click=lambda: st.session_state.update(show_all=True))
 
 # ── 3 계약 점검 ───────────────────────────────────────────────
 else:

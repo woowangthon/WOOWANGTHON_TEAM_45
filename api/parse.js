@@ -297,7 +297,8 @@ const LIMIT_MESSAGES = {
 const PROMPT = `너는 충북대 근처 자취방 검색 조건을 뽑는 도우미야.
 사용자 문장에서 "명시적으로 말한 조건"만 JSON으로 뽑아. 말하지 않은 값은 절대 추측하지 말고 null(배열은 빈 배열)로 둬.
 
-- max_rent_manwon: 월세 상한(만 원, 정수). "40 이하", "40만 원까지" → 40
+- max_rent_manwon: 월세 상한(만 원, 정수). "40 이하", "40만 원까지" → 40. "30~40" → 40. "30 이상"처럼 하한만 말하면 null
+- min_rent_manwon: 월세 하한(만 원, 정수). "30 이상", "30~40" → 30. 하한을 말하지 않았으면 null
 - max_deposit_manwon: 보증금 상한(만 원, 정수). "1천" → 1000
 - max_walk_min: 학교 문까지 도보 시간 상한(분, 정수). "걸어서 10분" → 10
 - gate: 기준 문. ${GATES.join("/")} 중 하나. 문을 말하지 않았으면 null
@@ -313,6 +314,7 @@ const SCHEMA = {
   type: "OBJECT",
   properties: {
     max_rent_manwon: { type: "INTEGER", nullable: true },
+    min_rent_manwon: { type: "INTEGER", nullable: true },
     max_deposit_manwon: { type: "INTEGER", nullable: true },
     max_walk_min: { type: "INTEGER", nullable: true },
     gate: { type: "STRING", enum: GATES, nullable: true },
@@ -320,7 +322,7 @@ const SCHEMA = {
     options: { type: "ARRAY", items: { type: "STRING", enum: OPTIONS } },
     priorities: { type: "ARRAY", items: { type: "STRING", enum: FACTORS } },
   },
-  required: ["max_rent_manwon", "max_deposit_manwon", "max_walk_min", "gate", "kinds", "options", "priorities"],
+  required: ["max_rent_manwon", "min_rent_manwon", "max_deposit_manwon", "max_walk_min", "gate", "kinds", "options", "priorities"],
 };
 
 // ── 특약 설명 (11/13 회의: AI는 확인할 문구 후보 + 쉬운 설명 + 질문. 안전·효력은 판단하지 않음) ──
@@ -429,6 +431,7 @@ function sanitize(o) {
   const pick = (arr, allowed) => [...new Set((Array.isArray(arr) ? arr : []).filter((x) => allowed.includes(x)))];
   return {
     max_rent_manwon: int(o?.max_rent_manwon, 1, 500),
+    min_rent_manwon: int(o?.min_rent_manwon, 1, 500),
     max_deposit_manwon: int(o?.max_deposit_manwon, 1, 100000),
     max_walk_min: int(o?.max_walk_min, 1, 120),
     gate: GATES.includes(o?.gate) ? o.gate : null,
