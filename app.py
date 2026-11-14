@@ -240,7 +240,13 @@ def find_by_sentence():
             st.session_state.ai_calls += 1
             fields, note = ai_parse.request_parse(sentence)
             st.session_state.limits = ai_parse.last_limits or st.session_state.limits
-        st.session_state.ai_note = note
+        if fields is None:
+            note = note or ""
+            if "간단 해석" not in note and "규칙 해석" not in note:
+                note = (note + " 이번 검색은 AI 대신 간단 해석으로 찾았어요.").strip()
+            st.session_state.ai_note = note
+        else:
+            st.session_state.ai_note = None
         cond, understood = rc.cond_from_ai(fields) if fields is not None else rc.parse_sentence(sentence)
         reset_inputs()
         st.session_state.adjusted = fill_inputs(cond)

@@ -63,6 +63,15 @@ class SafeHomeFlowTests(unittest.TestCase):
         self.assertEqual(self.app.session_state.searched['cond']['max_rent'], 350_000)
         self.assertIn('연결 실패', self.app.session_state.ai_note)
 
+    def test_rate_limit_caption_explains_fallback(self):
+        reason = '검색을 너무 자주 했어요. 1분 뒤에 다시 시도해 주세요.'
+        self.app.text_input(key='sentence').set_value('월세 40 정문 10분')
+        with patch.object(ai_parse, 'request_parse', return_value=(None, reason)):
+            self.click('내 방 찾기 →')
+        self.assertEqual(self.app.session_state.step, 2)
+        self.assertTrue(any(reason in caption.value and '간단 해석으로 찾았어요' in caption.value
+                            for caption in self.app.caption))
+
     def test_new_sentence_search_does_not_keep_old_conditions(self):
         self.app.text_input(key='sentence').set_value('월세 40 세탁기 원룸')
         with patch.object(ai_parse, 'request_parse', return_value=(None, '연결 실패')):
