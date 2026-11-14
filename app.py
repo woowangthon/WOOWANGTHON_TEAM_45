@@ -177,6 +177,7 @@ STEPS = {1: "1  집 찾기", 2: "2  추천 결과", 3: "3  계약 점검"}
 def go(step):
     st.session_state.step = step
     st.session_state.scroll_top = True
+    st.session_state.scroll_n = st.session_state.get("scroll_n", 0) + 1
 
 
 def current_condition():
@@ -242,7 +243,13 @@ def find_by_sentence():
             st.session_state.ai_calls += 1
             fields, note = ai_parse.request_parse(sentence)
             st.session_state.limits = ai_parse.last_limits or st.session_state.limits
-        st.session_state.ai_note = note
+        if fields is None:
+            note = note or ""
+            if "간단 해석" not in note and "규칙 해석" not in note:
+                note = (note + " 이번 검색은 AI 대신 간단 해석으로 찾았어요.").strip()
+            st.session_state.ai_note = note
+        else:
+            st.session_state.ai_note = None
         cond, understood = rc.cond_from_ai(fields) if fields is not None else rc.parse_sentence(sentence)
         reset_inputs()
         st.session_state.adjusted = fill_inputs(cond)
@@ -457,15 +464,20 @@ def room_3d(height=440):
 # ── 헤더 · 단계 표시 ──────────────────────────────────────────
 st.markdown('<div class="sh-brand"><div class="sh-logo"><span class="sh-logo-icon" aria-hidden="true">⌂</span>'
             'Safe Home</div><span class="sh-campus">충북대학교 · 자취 생활의 시작</span></div>', unsafe_allow_html=True)
-st.radio("단계", list(STEPS), key="step", format_func=STEPS.get, horizontal=True, label_visibility="collapsed")
+st.radio("단계", list(STEPS), key="step", format_func=STEPS.get, horizontal=True, label_visibility="collapsed",
+         on_change=lambda: go(st.session_state.step))  # 위 단계 버튼으로 옮겨도 맨 위로
 
 if st.session_state.scroll_top:  # 단계가 바뀌면 화면 맨 위로
     st.session_state.scroll_top = False
     try:
         import streamlit.components.v1 as components
-        components.html("<script>const d=window.parent.document;"
-                        "(d.querySelector('[data-testid=\"stMain\"]')||d.querySelector('section.main')||d.body)"
-                        ".scrollTo({top:0});window.parent.scrollTo(0,0);</script>", height=0)
+        # 같은 HTML이면 Streamlit이 iframe을 다시 쓰지 않아 스크립트가 안 돌아서 매번 번호를 바꿔 넣음.
+        # 새 화면이 다 그려지기 전에 먼저 돌 수 있어 잠깐 동안 몇 번 더 맨 위로 올림.
+        components.html(f"<!-- {st.session_state.get('scroll_n', 0)} -->"
+                        "<script>const d=window.parent.document;const up=()=>{"
+                        "d.querySelectorAll('[data-testid=\"stAppViewContainer\"],[data-testid=\"stMain\"],"
+                        "section.main').forEach(e=>e.scrollTo({top:0}));window.parent.scrollTo(0,0);};"
+                        "up();[100,300,600,1000].forEach(t=>setTimeout(up,t));</script>", height=0)
     except Exception:
         pass
 
