@@ -4,8 +4,8 @@
 화면: 1 집 찾기 → 2 추천 결과 → 3 계약 점검 (버튼을 누르면 다음 단계로 자동 이동)
 데이터: safehome.db (가상 매물 100건 · 텍스트 가상 계약서/등기) + market_prices.csv (국토부 실거래가 중위값).
        DB가 없으면 자동 생성.
-문장 해석: 「찾기」는 문장을 Gemini(/api/parse 서버리스 함수)로 조건으로 바꾼 뒤 바로 검색해요. 실패하면 규칙 해석.
-          「이 조건으로 찾기」는 입력칸 값으로만 검색해요(Gemini 0회). 검색·점수·계약 점검은 전부 규칙이에요.
+문장 해석: 「찾기」는 문장을 Gemini(/api/parse 서버리스 함수)로 조건으로 바꾼 뒤 바로 검색합니다. 실패하면 규칙 해석.
+          「조건 검색」는 입력칸 값으로만 검색합니다(Gemini 0회). 검색·점수·계약 점검은 전부 규칙입니다.
 """
 import base64
 import copy
@@ -27,7 +27,7 @@ ROOM_GLB = "room_scan.glb"
 ROOM_INSIDE_TARGET = "1.4m -0.5m 0.8m"
 MODEL_VIEWER_CDN = "https://cdn.jsdelivr.net/npm/@google/model-viewer@4.1.0/dist/model-viewer.min.js"
 
-st.set_page_config(page_title="Safe Home", page_icon="🏠", layout="wide",
+st.set_page_config(page_title="Safe Home", layout="wide",
                    initial_sidebar_state="collapsed")
 
 # 상태별 색 (밝은·어두운 화면 모두에서 읽히도록 반투명 배경)
@@ -40,76 +40,95 @@ TONE = {
 
 st.markdown("""
 <style>
+@import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.css');
 /* Native Streamlit controls retain their labels, focus and keyboard behavior. */
 :root { --sh-ink:#16342e; --sh-muted:#61756e; --sh-line:#dce7e1; --sh-green:#087f65; }
 [data-testid="stSidebar"], [data-testid="stSidebarCollapsedControl"] { display:none; }
 [data-testid="stAppViewContainer"] { background:#f5f8f5; }
 [data-testid="stHeader"] { background:transparent; }
-.block-container { padding:2.2rem 2rem 4rem; max-width:1120px; }
-html, body, [data-testid="stApp"] { color:var(--sh-ink); }
-h1,h2,h3,h4 { letter-spacing:-.04em; color:var(--sh-ink); }
+.block-container { padding:2rem 2rem 4rem; max-width:1040px; }
+html, body, [data-testid="stApp"], [data-testid="stApp"] input,
+[data-testid="stApp"] button, [data-testid="stApp"] textarea, [data-testid="stApp"] select {
+  font-family:"Pretendard Variable", Pretendard, sans-serif; color:var(--sh-ink);
+  font-synthesis:none; font-variant-numeric:tabular-nums; letter-spacing:-.02em;
+}
+[data-testid="stMarkdownContainer"] p, [data-testid="stMarkdownContainer"] li { font-size:1rem; line-height:1.65; }
+[data-testid="stMarkdownContainer"] p { max-width:72ch; }
+[data-testid="stApp"] p, [data-testid="stApp"] h1, [data-testid="stApp"] h2,
+[data-testid="stApp"] h3, [data-testid="stApp"] h4 { word-break:keep-all; overflow-wrap:anywhere; }
+input, textarea { caret-color:var(--sh-green); }
+::selection { background:#e1f2e9; color:var(--sh-ink); }
+a { text-underline-offset:3px; }
+h1 { font-size:1.5rem !important; line-height:1.35; font-weight:700; }
+h2 { font-size:1.5rem !important; line-height:1.4; font-weight:700; }
+h4 { font-size:1.25rem !important; line-height:1.4; font-weight:600; }
+[data-testid="stRadio"] [role="radio"] { flex-shrink:0; }
+
+h1,h2,h3,h4 { letter-spacing:-.02em; color:var(--sh-ink); }
 h3 { font-size:1.5rem !important; }
 [data-testid="stCaptionContainer"] { color:var(--sh-muted); }
 [data-testid="stVerticalBlock"] { gap:1rem; }
-.st-key-search_card, .st-key-usage_card, [class*="st-key-listing_"], [class*="st-key-note_"] { border:1px solid var(--sh-line) !important; border-radius:20px !important; background:#fff; padding:22px !important; }
-[data-testid="stExpander"] { border:1px solid var(--sh-line); border-radius:16px; background:#fff; overflow:hidden; }
+.st-key-search_card, .st-key-usage_card, [class*="st-key-listing_"], [class*="st-key-note_"] { border:1px solid var(--sh-line) !important; border-radius:12px !important; background:#fff; padding:24px !important; }
+[data-testid="stExpander"] { border:1px solid var(--sh-line); border-radius:12px; background:#fff; overflow:hidden; }
 [data-testid="stExpander"] summary { padding:1rem; font-weight:600; }
 [data-testid="stTextInput"] input, [data-testid="stNumberInput"] input { min-height:46px; }
-[data-testid="stButton"] button { min-height:46px; border-radius:12px; font-weight:650; border-color:#cdded5; }
+[data-testid="stButton"] button { min-height:46px; border-radius:8px; font-weight:600; transition:transform 140ms cubic-bezier(.23,1,.32,1); border-color:#cdded5; }
 [data-testid="stButton"] button[kind="primary"] { background:#087f65; border-color:#087f65; color:white; }
+[data-testid="stButton"] button:active { transform:scale(.98); }
 [data-testid="stButton"] button:hover { border-color:#087f65; color:#087f65; }
 [data-testid="stButton"] button[kind="primary"]:hover { background:#06634f; color:#fff; }
 [data-testid="stButton"] button:focus-visible, input:focus-visible, summary:focus-visible { outline:3px solid #49bfa2; outline-offset:3px; }
 [data-testid="stRadio"] [role="radiogroup"] { gap:10px; }
-[data-testid="stRadio"] label { margin:0; padding:10px 18px; border:1px solid var(--sh-line); border-radius:12px; background:white; }
-[data-testid="stRadio"] label:has(input:checked) { background:#e1f2e9; border-color:#087f65; }
+[data-testid="stRadio"] [role="radiogroup"] label { margin:0; padding:10px 18px; border:1px solid var(--sh-line); border-radius:8px; background:white; }
+[data-testid="stRadio"] [role="radiogroup"] label:has(input:checked) { background:#e1f2e9; border-color:#087f65; }
 .sh-brand { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:10px; }
-.sh-logo { display:flex; align-items:center; gap:10px; font-weight:800; font-size:1.35rem; letter-spacing:-.04em; }
-.sh-logo-icon { display:grid; place-items:center; width:36px; height:36px; border-radius:12px; background:#087f65; color:white; font-size:22px; }
-.sh-campus { font-size:.78rem; color:#466357; border:1px solid #cedfd3; border-radius:999px; padding:6px 12px; }
-.sh-hero { position:relative; display:grid; grid-template-columns:1.7fr 1fr; gap:24px; padding:36px 38px; border-radius:24px; background:#163e34; color:white; overflow:hidden; }
-.sh-eyebrow { font-size:.72rem; font-weight:750; letter-spacing:.14em; color:#a3dcc5; margin-bottom:14px; }
-.sh-hero h1 { color:white; font-size:2.55rem; line-height:1.3; margin:0 0 14px; padding:0; }
-.sh-hero p { color:#d0e3d9; font-size:.95rem; line-height:1.8; margin:0; }
-.sh-hero em { color:#bce8b4; font-style:normal; }
-.sh-room { position:relative; align-self:center; height:180px; border:2px solid #6d9a87; border-radius:12px; transform:rotate(-5deg); background:#255345; box-shadow:12px 12px 0 #103329; }
-.sh-bed { position:absolute; top:16px; left:16px; width:44%; height:108px; background:#bad6bc; border:7px solid #e2eede; border-radius:6px; }
-.sh-pillow { width:80%; height:25px; background:#f6f8e9; border-radius:4px; margin:5px auto; }
-.sh-desk { position:absolute; right:16px; top:16px; width:32%; height:44px; border-radius:5px; background:#d2b78b; border:4px solid #e5d4b6; }
-.sh-plant { position:absolute; right:28px; bottom:20px; font-size:32px; color:#bce8b4; }
-.sh-room-label { position:absolute; bottom:14px; left:18px; font-size:.72rem; color:#d0e3d9; letter-spacing:.05em; }
-.sh-intro { margin:8px 0 2px; }
-.sh-intro h2 { font-size:1.6rem; margin:0 0 6px; padding:0; }
-.sh-intro p { color:var(--sh-muted); margin:0; font-size:.9rem; }
-.sh-kicker { color:#087f65; font-size:.75rem; font-weight:750; letter-spacing:.08em; margin-bottom:8px; }
-.sh-chip { display:inline-block; padding:6px 12px; margin:0 6px 6px 0; border-radius:999px; font-size:.8rem; color:#36584b; background:#edf4ef; border:1px solid #dce8df; }
-.sh-badge { display:inline-block; padding:4px 9px; margin:0 6px 6px 0; border-radius:7px; font-size:.78rem; font-weight:650; }
-.sh-doc { border:1px solid var(--sh-line); border-radius:16px; background:#fff; padding:20px; font-size:.86rem; line-height:1.9; overflow-wrap:anywhere; }
+.sh-logo { display:flex; align-items:center; gap:10px; font-weight:700; font-size:1.25rem; letter-spacing:-.02em; }
+.sh-logo-icon { display:grid; place-items:center; width:36px; height:36px; border-radius:8px; background:#087f65; color:white; font-size:22px; }
+.sh-campus { font-size:.8125rem; color:#466357; }
+.sh-hero { padding:24px 28px; border-radius:12px; background:#163e34; color:white; }
+.sh-hero h1 { color:white; font-size:2rem !important; line-height:1.35; margin:0 0 8px; padding:0; }
+.sh-hero p { color:#d0e3d9; font-size:1rem; line-height:1.6; margin:0; }
+.sh-intro { margin:8px 0 0; }
+.sh-intro h2 { font-size:1.5rem; margin:0 0 6px; padding:0; }
+.sh-intro p { color:var(--sh-muted); margin:0; font-size:.875rem; }
+.sh-chip { display:inline-block; padding:6px 12px; margin:0 6px 6px 0; border-radius:6px; font-size:.8125rem; color:#36584b; background:#edf4ef; border:1px solid #dce8df; }
+.sh-badge { display:inline-block; padding:4px 9px; margin:0 6px 6px 0; border-radius:7px; font-size:.78rem; font-weight:600; }
+.sh-doc { border:1px solid var(--sh-line); border-radius:8px; background:#fff; padding:20px; font-size:.86rem; line-height:1.9; overflow-wrap:anywhere; }
 .sh-doc .ln { padding:2px 8px; margin:0 -8px; border-left:3px solid transparent; white-space:pre-wrap; }
 .sh-doc .hd { font-weight:700; margin-top:12px; }
-.sh-doc .ttl { font-weight:750; font-size:1rem; margin-bottom:10px; }
+.sh-doc .ttl { font-weight:700; font-size:1rem; margin-bottom:10px; }
 .sh-no { display:inline-block; min-width:1.5em; height:1.5em; line-height:1.5em; margin-left:6px; border-radius:999px; text-align:center; font-size:.75rem; font-weight:700; color:#fff; }
-.sh-verdict { border-radius:14px; padding:18px 20px; margin:8px 0; font-weight:650; }
-.sh-price { font-size:1.9rem; font-weight:800; line-height:1.4; letter-spacing:-.05em; color:#087f65; }
-.sh-muted { color:var(--sh-muted); font-size:.82rem; line-height:1.7; }
-.sh-rank { font-size:.75rem; color:#087f65; font-weight:750; margin-bottom:4px; }
-.sh-reasons { padding:14px 16px; border-radius:12px; background:#f2f7f3; font-size:.87rem; line-height:1.8; margin:8px 0; }
+.sh-verdict { border-radius:8px; padding:18px 20px; margin:8px 0; font-weight:600; }
+.sh-price { font-size:1.75rem; font-weight:700; line-height:1.4; letter-spacing:-.02em; color:#087f65; }
+.sh-muted { color:var(--sh-muted); font-size:.875rem; line-height:1.7; }
+.sh-rank { font-size:.75rem; color:#087f65; font-weight:700; margin-bottom:4px; }
+.sh-reasons { padding:12px 16px; border-radius:8px; background:#f2f7f3; font-size:.875rem; line-height:1.8; margin:8px 0; }
 .sh-stats { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin:8px 0 12px; }
-.sh-stat { padding:18px 20px; background:#fff; border:1px solid var(--sh-line); border-radius:16px; }
-.sh-stat strong { display:block; color:#163e34; font-size:1.45rem; letter-spacing:-.04em; margin-top:4px; }
-.sh-footer { margin-top:32px; padding-top:20px; border-top:1px solid var(--sh-line); color:#61756e; font-size:.75rem; line-height:1.9; }
+.sh-stat { padding:12px 0; border-bottom:1px solid var(--sh-line); }
+.sh-stat strong { display:block; color:#163e34; font-size:1.45rem; letter-spacing:-.02em; margin-top:4px; }
+.sh-footer { margin-top:32px; padding-top:20px; border-top:1px solid var(--sh-line); color:#61756e; font-size:.8125rem; line-height:1.8; }
+
+[class*="st-key-listing_"] h2 { font-size:1.25rem !important; }
+[class*="st-key-listing_"] { border-width:0 0 1px !important; border-radius:0 !important; padding:24px 0 !important; background:transparent; }
+[class*="st-key-note_"] { border-width:0 0 1px !important; border-radius:0 !important; padding:20px 0 !important; background:transparent; }
+.st-key-usage_card { border:0 !important; padding:0 !important; background:transparent; }
+.sh-stats .sh-stat { background:transparent; border-width:0 0 1px; border-radius:0; padding:12px 0; }
 @media(max-width:680px) {
-  .block-container { padding:1.3rem 1rem 3rem; }
-  .sh-hero { padding:26px 24px; grid-template-columns:1fr; border-radius:20px; }
-  .sh-hero h1 { font-size:2rem; }
-  .sh-room { display:none; }
-  .sh-campus { font-size:.68rem; padding:5px 8px; }
+  .block-container { padding:1rem 1rem 3rem; }
+  .sh-hero { padding:18px 20px; border-radius:8px; }
+  .sh-hero h1 { font-size:1.5rem !important; }
+  .sh-hero p { font-size:.875rem; }
+  .sh-campus { font-size:.8125rem; }
+  .sh-brand { align-items:baseline; }
+  .sh-logo { font-size:1.125rem; }
   [data-testid="stHorizontalBlock"] { flex-wrap:wrap; gap:.8rem; }
   [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] { width:100% !important; flex:1 1 100% !important; min-width:0 !important; }
   [data-testid="stRadio"] [role="radiogroup"] { display:flex; flex-wrap:wrap; gap:6px; }
-  [data-testid="stRadio"] label { padding:8px 10px; font-size:.82rem; }
+  [data-testid="stRadio"] [role="radiogroup"] label { padding:8px 5px; font-size:.8125rem; }
+  [data-testid="stRadio"] [role="radiogroup"] label p { font-size:.8125rem !important; white-space:nowrap; }
+  [data-testid="stRadio"] [role="radiogroup"] { column-gap:4px; }
   .sh-stats { gap:6px; }
-  .sh-stat { padding:12px 10px; }
+  .sh-stat { padding:12px 0; }
   .sh-stat strong { font-size:1.2rem; }
   .sh-doc { padding:16px; }
   .st-key-search_card, .st-key-usage_card, [class*="st-key-listing_"], [class*="st-key-note_"] { padding:16px !important; }
@@ -171,7 +190,7 @@ def deposit_choices():
     out = dict(sorted(ch.items(), key=lambda kv: kv[1]))
     out["상관없음"] = None
     return out
-STEPS = {1: "1  집 찾기", 2: "2  추천 결과", 3: "3  계약 점검"}
+STEPS = {1: "1  조건 입력", 2: "2  추천 결과", 3: "3  계약서 점검"}
 
 
 def go(step):
@@ -238,7 +257,7 @@ def find_by_sentence():
     """「찾기」: 문장 → 조건(Gemini 1회, 실패하면 규칙) → 검색 → 2단계로."""
     sentence = (st.session_state.sentence or "").strip()
     if sentence:
-        fields, note = None, f"이 화면에서 AI 검색 {ai_parse.SESSION_LIMIT}번을 다 써서 간단 해석으로 찾았어요."
+        fields, note = None, f"이 화면에서 AI 검색 {ai_parse.SESSION_LIMIT}번을 모두 사용하여 간단 해석으로 검색했습니다."
         if st.session_state.ai_calls < ai_parse.SESSION_LIMIT:
             st.session_state.ai_calls += 1
             fields, note = ai_parse.request_parse(sentence)
@@ -246,7 +265,7 @@ def find_by_sentence():
         if fields is None:
             note = note or ""
             if "간단 해석" not in note and "규칙 해석" not in note:
-                note = (note + " 이번 검색은 AI 대신 간단 해석으로 찾았어요.").strip()
+                note = (note + " 이번 검색은 AI 대신 간단 해석으로 검색했습니다.").strip()
             st.session_state.ai_note = note
         else:
             st.session_state.ai_note = None
@@ -259,7 +278,7 @@ def find_by_sentence():
 
 
 def find_by_inputs():
-    """「이 조건으로 찾기」: 입력칸 값으로만 검색 (Gemini 0회) → 2단계로."""
+    """「조건 검색」: 입력칸 값으로만 검색 (Gemini 0회) → 2단계로."""
     st.session_state.understood = None
     st.session_state.ai_note = None
     st.session_state.adjusted = None
@@ -308,19 +327,27 @@ def limit_box():
                 st.markdown(f'<div class="sh-muted">{html.escape(name)}</div><div><b>{html.escape(text)}</b></div>'
                             + bar(used, limit), unsafe_allow_html=True)
         if lim and lim.get("cooldown_sec"):
-            st.markdown(f'<div class="sh-muted">지금 Google 한도에 닿아 쉬는 중이에요. {lim["cooldown_sec"]}초 뒤에 AI를 다시 써요.</div>',
+            st.markdown(f'<div class="sh-muted">AI 사용 한도에 도달했습니다. {lim["cooldown_sec"]}초 후 다시 사용할 수 있습니다.</div>',
                         unsafe_allow_html=True)
-        st.caption("한도를 넘으면 AI 대신 간단 해석으로 찾아요(검색은 계속 돼요). "
-                   + ("서버 숫자는 대략이에요. 서버가 새로 뜨면 0부터 다시 세요." if lim
-                      else "서버 사용량을 불러오지 못해 이 화면 기준만 보여요."))
+        st.caption("AI 사용 한도 초과 시 간단 해석으로 검색을 계속합니다. "
+                   + ("사용량은 추정치이며 변경될 수 있습니다." if lim
+                      else "전체 사용량을 불러오지 못해 현재 접속의 사용량만 표시합니다."))
 
 
 def explain_specials(ai_key, sentences):
-    """「AI로 특약 설명 듣기」: Gemini 1회. 실패해도 규칙 결과는 그대로 보여 준다 (11/13)."""
+    """「AI 특약 설명」: Gemini 1회. 실패해도 규칙 결과는 그대로 보여 준다 (11/13)."""
     st.session_state.ai_calls += 1
     items, message = ai_parse.request_specials(sentences)
     st.session_state[ai_key] = dict(items=items, message=message)
     st.session_state.limits = ai_parse.last_limits or st.session_state.limits
+
+
+def display_text(value):
+    """Mask sample personal names on screen without altering analysis inputs."""
+    text = str(value)
+    for name in (*db_seed.LESSORS, "오대리", "강다른"):
+        text = text.replace(name, name[0] + "○○")
+    return text
 
 
 def links(sources, prefix="근거"):
@@ -381,7 +408,7 @@ def doc_html(text, doc_marks, note_status):
         s = line.strip()
         nos = cc.line_marks(line, doc_marks)
         cls = "ln ttl" if i == 0 else "ln hd" if s.startswith("[") else "ln"
-        body = html.escape(line) if s else "&nbsp;"
+        body = html.escape(display_text(line)) if s else "&nbsp;"
         if nos:
             worst = max((note_status[n] for n in nos), key=cc.SEVERITY.get)
             _, color, bg = TONE[worst]
@@ -415,14 +442,16 @@ def room_3d(height=440):
     components.html(f"""
 <script type="module" src="{viewer_js}"></script>
 <style>
-  body {{ margin: 0; font-family: system-ui, sans-serif; }}
+  @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.css');
+  body {{ margin: 0; font-family: "Pretendard Variable", Pretendard, sans-serif; }}
+  button {{ font:inherit; }}
   model-viewer {{ width: 100%; height: {height - 8}px; border-radius: 10px;
-                  background: radial-gradient(circle at 50% 40%, #f4f5f7, #d9dce1); }}
-  .hint {{ position: absolute; left: 12px; bottom: 12px; padding: 4px 10px; border-radius: 999px;
+                  background:#f4f5f7; }}
+  .hint {{ position: absolute; left: 12px; bottom: 12px; padding: 6px 10px; border-radius: 6px; pointer-events:none;
            font-size: 12px; color: #fff; background: rgba(0,0,0,0.45); }}
   .views {{ position: absolute; right: 10px; top: 10px; display: flex; gap: 6px; }}
-  .views button {{ border: 0; border-radius: 999px; padding: 6px 12px; font-size: 13px; cursor: pointer;
-                   color: #1f2d27; background: rgba(255,255,255,0.85); box-shadow: 0 1px 4px rgba(0,0,0,0.2); }}
+  .views button {{ border: 0; border-radius: 6px; padding: 10px 12px; min-height:44px; font-size: 14px; cursor: pointer;
+                   color: #1f2d27; background: rgba(255,255,255,0.85); box-shadow:none; }}
   .views button.on {{ color: #fff; background: #1f6f54; }}
 </style>
 <model-viewer id="room" src="{src}" alt="자취방 3D 스캔 모델" camera-controls touch-action="pan-y"
@@ -430,15 +459,23 @@ def room_3d(height=440):
               exposure="1.05" camera-target="{ROOM_INSIDE_TARGET}" camera-orbit="0deg 90deg 0.2m"
               min-camera-orbit="auto 60deg 0.2m" max-camera-orbit="auto 115deg 0.2m"
               field-of-view="85deg" min-field-of-view="85deg" max-field-of-view="85deg">
-  <div class="hint" slot="poster">3D 방 불러오는 중…</div>
-  <div class="hint" id="hint">드래그로 방 안을 둘러보기</div>
+  <div class="hint" slot="poster" id="loading" role="status">3D 모델 로딩 중</div>
+  <div class="hint" id="hint" hidden>드래그로 방 안을 둘러보기</div>
   <div class="views">
-    <button id="in" class="on" type="button">방 안에서</button>
-    <button id="out" type="button">밖에서</button>
+    <button id="in" class="on" type="button">내부 시점</button>
+    <button id="out" type="button">외부 시점</button>
   </div>
 </model-viewer>
 <script>
   const mv = document.getElementById("room"), hint = document.getElementById("hint");
+  mv.addEventListener("load", () => {{
+    document.getElementById("loading").hidden = true; hint.hidden = false;
+  }});
+  mv.addEventListener("error", () => {{
+    const loading = document.getElementById("loading");
+    loading.hidden = false; loading.textContent = "3D 모델을 불러오지 못했습니다. 새로고침 후 다시 확인하십시오.";
+    hint.hidden = true;
+  }});
   const views = {{
     in: {{ target: "{ROOM_INSIDE_TARGET}", orbit: "0deg 90deg 0.2m", min: "auto 60deg 0.2m",
           max: "auto 115deg 0.2m", fov: "85deg", speed: "10deg", hint: "드래그로 방 안을 둘러보기" }},
@@ -462,8 +499,8 @@ def room_3d(height=440):
 
 
 # ── 헤더 · 단계 표시 ──────────────────────────────────────────
-st.markdown('<div class="sh-brand"><div class="sh-logo"><span class="sh-logo-icon" aria-hidden="true">⌂</span>'
-            'Safe Home</div><span class="sh-campus">충북대학교 · 자취 생활의 시작</span></div>', unsafe_allow_html=True)
+st.markdown('<div class="sh-brand"><div class="sh-logo">'
+            'Safe Home</div><span class="sh-campus">충북대학교 주변</span></div>', unsafe_allow_html=True)
 st.radio("단계", list(STEPS), key="step", format_func=STEPS.get, horizontal=True, label_visibility="collapsed",
          on_change=lambda: go(st.session_state.step))  # 위 단계 버튼으로 옮겨도 맨 위로
 
@@ -486,24 +523,20 @@ step = st.session_state.step
 # ── 1 집 찾기 ─────────────────────────────────────────────────
 if step == 1:
     st.markdown("""<section class="sh-hero">
-<div><div class="sh-eyebrow">FIND YOUR PLACE, FEEL AT HOME</div>
-<h1>처음 구하는 내 방,<br><em>안심부터 챙겨요.</em></h1>
-<p>나에게 맞는 자취방을 찾고, 계약 전 놓치기 쉬운 부분까지.<br>충북대 앞 새로운 시작을 함께 준비해요.</p></div>
-<div class="sh-room" aria-hidden="true"><div class="sh-bed"><div class="sh-pillow"></div></div>
-<div class="sh-desk"></div><div class="sh-plant">✳</div><div class="sh-room-label">A PLACE TO CALL HOME</div></div></section>""", unsafe_allow_html=True)
-    st.markdown('<div class="sh-intro"><div class="sh-kicker">01 / 나의 조건 찾기</div>'
-                '<h2>어떤 방에서 살고 싶나요?</h2><p>예산, 통학 거리, 꼭 필요한 옵션을 편하게 적어 주세요.</p></div>', unsafe_allow_html=True)
+<h1>청주 대학가 방 추천과 계약 점검</h1>
+<p>예산과 통학 조건으로 비교하고, 계약 전 확인 사항을 살펴봅니다.</p></section>""", unsafe_allow_html=True)
+    st.markdown('<div class="sh-intro"><h2>조건 입력</h2></div>', unsafe_allow_html=True)
     with st.container(border=True, key="search_card"):
         q1, q2 = st.columns([5, 1], vertical_alignment="bottom")
         with q1:
             st.text_input("찾는 집", key="sentence", max_chars=ai_parse.MAX_CHARS,
                           placeholder="예) 정문 10분, 월세 40만 원 이하, 조용하고 세탁기 있는 원룸")
         with q2:
-            st.button("내 방 찾기 →", type="primary", on_click=find_by_sentence, use_container_width=True)
-        st.caption("문장은 AI로 조건을 정리해요. 연결이 어려우면 간단 해석으로 검색을 이어 가요.")
+            st.button("문장 검색", type="primary", on_click=find_by_sentence, use_container_width=True)
+        st.caption("입력 문장에서 조건을 추출합니다. AI 연결 실패 시 간단 해석으로 검색합니다.")
 
-    with st.expander("조건 직접 고르기 · 예산과 생활 취향", expanded=True):
-        st.caption("입력한 조건만으로 검색해요. 월세 상한에는 관리비가 포함되지 않아요.")
+    with st.expander("세부 조건", expanded=True):
+        st.caption("월세 상한은 관리비를 제외한 금액입니다.")
         c1, c2, c3 = st.columns(3)
         with c1:
             st.number_input("월세 상한 (만 원)", min_value=10, max_value=150, step=1, key="f_rent")
@@ -513,10 +546,10 @@ if step == 1:
             st.slider("도보 시간 (분 이내)", 5, 30, key="f_walk")
         with c3:
             st.multiselect("집 유형", rc.KINDS, key="f_kinds")
-            st.multiselect("꼭 있어야 하는 옵션", rc.OPTIONS, key="f_opts")
-        st.multiselect("중요하게 보는 것 (고른 순서대로)", rc.FACTORS, key="f_pri")
-        st.radio("보여 줄 개수", [3, 5], horizontal=True, key="f_top")
-        st.button("이 조건으로 찾기", on_click=find_by_inputs, type="primary", use_container_width=True)
+            st.multiselect("필수 옵션", rc.OPTIONS, key="f_opts", placeholder="옵션 선택")
+        st.multiselect("우선순위 (선택 순서)", rc.FACTORS, key="f_pri", placeholder="우선순위 선택")
+        st.radio("추천 개수", [3, 5], horizontal=True, key="f_top")
+        st.button("조건 검색", on_click=find_by_inputs, type="primary", use_container_width=True)
 
     with st.expander("AI 검색 사용량 · 한도 안내"):
         limit_box()
@@ -529,22 +562,21 @@ elif step == 2:
     with top:
         st.markdown(chips(condition_tags(s["cond"], s["dep_label"])), unsafe_allow_html=True)
     with side:
-        st.button("조건 바꾸기", on_click=go, args=(1,), use_container_width=True)
+        st.button("조건 수정", on_click=go, args=(1,), use_container_width=True)
     if st.session_state.understood == []:
-        st.caption("문장에서 조건을 찾지 못해 기본 조건으로 찾았어요. 「조건 바꾸기」에서 직접 골라 주세요.")
+        st.caption("문장에서 조건을 찾지 못해 기본 조건으로 검색했습니다. 「조건 수정」에서 직접 선택하십시오.")
     elif st.session_state.understood:
         st.caption("문장에서 읽은 조건 · " + " · ".join(st.session_state.understood)
-                   + " (나머지는 기본값이에요. 위 조건표를 확인해 주세요.)")
+                   + " (나머지는 기본값입니다. 위 조건표를 확인하십시오.)")
     if st.session_state.adjusted:
-        st.warning("입력 범위에 맞춰 바꾼 조건이 있어요 · " + " · ".join(st.session_state.adjusted)
-                   + ". 「조건 바꾸기」에서 확인해 주세요.")
+        st.warning("입력 범위에 맞춰 바꾼 조건이 있습니다 · " + " · ".join(st.session_state.adjusted)
+                   + ". 「조건 수정」에서 확인하십시오.")
     if st.session_state.ai_note:  # AI를 못 쓴 이유 (검색 제한·연결 실패 등)
         st.caption(f"검색 제한 · {st.session_state.ai_note}")
 
-    st.markdown('<div class="sh-kicker">02 / 나에게 맞는 추천</div>', unsafe_allow_html=True)
-    st.markdown(f"### 조건에 맞는 집 {len(hits)}곳을 찾았어요")
-    st.caption(f"선택한 우선순위와 설문 가중치로 정렬했어요. 상위 {len(ranked)}곳을 비교해 보세요. "
-               "추천 점수는 계약 안전도와 별개라, 계약 위험 신호가 있는 집은 카드에 경고로 표시해요.")
+    st.markdown(f"# 추천 결과 · {len(hits)}곳")
+    st.caption(f"선택한 조건과 우선순위를 반영한 상위 {len(ranked)}곳입니다. "
+               "계약 위험 신호는 추천 순위와 별도로 표시합니다.")
     if ranked:
         lowest = min(rc.real_monthly(it["row"]) for it in ranked) / 10_000
         nearest = min(it["row"][rc.GATES[s["cond"]["gate"]]] for it in ranked)
@@ -552,7 +584,7 @@ elif step == 2:
                     f'<div class="sh-stat"><span class="sh-muted">추천 중 최저 월 비용</span><strong>{lowest:.0f}만 원</strong></div>'
                     f'<div class="sh-stat"><span class="sh-muted">추천 중 가장 가까운 집</span><strong>도보 {nearest}분</strong></div></div>', unsafe_allow_html=True)
     if not ranked:
-        st.info("조건에 맞는 집이 없어요. 월세 상한이나 도보 시간을 조금 늘려 보세요.")
+        st.info("조건에 맞는 집이 없습니다. 월세 상한이나 도보 시간을 조금 늘리십시오.")
 
     for rank, item in enumerate(ranked, 1):
         r = item["row"]
@@ -563,8 +595,8 @@ elif step == 2:
         with st.container(border=True, key=f"listing_{r['id']}"):
             a, b = st.columns([3, 1])
             with a:
-                st.markdown(f'<div class="sh-rank">MATCH {rank:02d} · 추천 순위</div>', unsafe_allow_html=True)
-                st.markdown(f"#### {r['name']}")
+                st.markdown(f'<div class="sh-rank">추천 {rank}순위</div>', unsafe_allow_html=True)
+                st.markdown(f"## {r['name']}")
                 st.markdown(f'<div class="sh-muted">{html.escape(r["address"])} · {r["kind"]} · {r["area"]}㎡'
                             f' · {s["cond"]["gate"]} 도보 {r[rc.GATES[s["cond"]["gate"]]]}분</div>',
                             unsafe_allow_html=True)
@@ -590,31 +622,30 @@ elif step == 2:
                 line.append(f'<span class="sh-muted">주변 {r["kind"]} 실거래 시세 대비 {mk["diff"]:+.0%}</span>')
             st.markdown("".join(line), unsafe_allow_html=True)
             if flags[cc.RISK]:
-                st.error(f"⚠ 계약 위험 신호 {flags[cc.RISK]}개 · 조건은 잘 맞지만 보증금을 지키기 어려울 수 있어요. "
-                         "계약 전에 「계약서 점검하기」에서 꼭 확인하세요.")
-            st.markdown(f'<div class="sh-reasons"><b>이 집을 추천하는 이유</b><br>{html.escape(" · ".join(reasons))}</div>',
+                st.error(f"계약 위험 신호 {flags[cc.RISK]}개 · 조건은 잘 맞지만 보증금을 지키기 어려울 수 있습니다. "
+                         "계약 전에 「계약서 점검」에서 꼭 확인하십시오.")
+            st.markdown(f'<div class="sh-reasons"><b>추천 근거</b><br>{html.escape(" · ".join(reasons))}</div>',
                         unsafe_allow_html=True)
             if weak:
-                st.caption("함께 고려하세요 · " + " · ".join(weak))
-            with st.expander("추천 점수와 시세 기준 보기"):
-                st.caption(f"추천 점수 {item['score'] * 100:.1f} / 100 · 이번 검색 결과 안에서의 상대 점수예요. 계약 안전도를 의미하지 않아요.")
+                st.caption("고려 사항 · " + " · ".join(weak))
+            with st.expander("점수·시세 기준"):
+                st.caption(f"추천 점수 {item['score'] * 100:.1f} / 100 · 현재 검색 결과 내 상대 점수이며 계약 안전도를 의미하지 않습니다.")
                 st.caption("적용 가중치 · " + " · ".join(f"{k} {v:.0%}" for k, v in weights.items()))
                 st.caption(mk["detail"])
-            st.button("계약서 점검하기", key=f"pick_{r['id']}", on_click=open_contract, args=(r["id"],),
+            st.button("계약서 점검", key=f"pick_{r['id']}", on_click=open_contract, args=(r["id"],),
                       type="primary", use_container_width=True)
 
 # ── 3 계약 점검 ───────────────────────────────────────────────
 else:
-    st.markdown('<div class="sh-kicker">03 / 계약 전 한 번 더</div>', unsafe_allow_html=True)
-    st.markdown("### 내 보증금, 계약 전에 살펴봐요")
-    st.caption("문서에 표시된 번호와 아래 설명을 함께 확인해 주세요.")
+    st.markdown("# 계약서 점검")
+    st.caption("문서의 번호와 확인 사항을 함께 확인하십시오.")
     _, ranked, _ = results()
     ids = [it["row"]["id"] for it in ranked]
     if st.session_state.sel_listing not in ids:
         ids.insert(0, st.session_state.sel_listing)
     nav, pick = st.columns([1, 4], vertical_alignment="bottom")
     with nav:
-        st.button("← 추천 목록", on_click=go, args=(2,), use_container_width=True)
+        st.button("추천 목록", on_click=go, args=(2,), use_container_width=True)
     with pick:
         st.selectbox("점검할 집", ids, key="sel_listing", format_func=lambda i: by_id[i]["name"],
                      label_visibility="collapsed")
@@ -631,7 +662,7 @@ else:
     note_status = {n["no"]: n["status"] for n in hl["notes"]}
     flags = cc.count_flags(res)
 
-    st.markdown(f"### {row['name']}")
+    st.markdown(f"## {row['name']}")
     st.markdown(f'<div class="sh-muted">보증금 {row["deposit"] // 10_000:,}만 · 월세 {row["rent"] // 10_000}만'
                 f' · 관리비 {row["maint"] // 10_000}만 · {html.escape(row["address"])}</div>',
                 unsafe_allow_html=True)
@@ -644,22 +675,22 @@ else:
         summary.append(f"주의 {flags[cc.CAUTION]}곳")
     if flags[cc.UNKNOWN]:
         summary.append(f"확인 필요 {flags[cc.UNKNOWN]}곳")
-    st.markdown(f'<div class="sh-verdict" style="background:{bg};border-left:4px solid {color}">'
+    st.markdown(f'<div class="sh-verdict" style="background:{bg};border:1px solid {color}">'
                 f'{html.escape(ov["label"])}'
                 f'{" · " + " · ".join(summary) if summary else ""}'
-                f'<div class="sh-muted" style="font-weight:400;margin-top:4px">가상 계약서·등기 문서를 분석한 결과예요. '
-                f'실제 서류·현장 {len(todo)}개는 아직 미확인이라, 이 결과가 계약 전체의 안전을 보장하지 않아요.</div></div>',
+                f'<div class="sh-muted" style="font-weight:400;margin-top:4px">가상 계약서·등기 문서를 분석한 결과입니다. '
+                f'실제 서류·현장 {len(todo)}개는 아직 미확인이라, 이 결과가 계약 전체의 안전을 보장하지 않습니다.</div></div>',
                 unsafe_allow_html=True)
 
-    with st.expander("🧊 3D로 방 둘러보기", expanded=True):
+    with st.expander("3D 방 둘러보기", expanded=True):
         if room_3d():
-            st.caption("휴대폰 3D 스캔 앱(KIRI Engine)으로 실제 집을 찍은 시연용 모델이에요. "
-                       "가상 매물과 같은 방은 아니고, 집을 직접 가기 전에 구조·크기를 미리 보는 기능을 보여 주는 예시예요.")
+            st.caption("실제 집을 스캔한 시연용 모델입니다. "
+                       "추천 매물의 실제 방과 다릅니다.")
         else:
-            st.caption("3D 모델 파일(assets/room_scan.glb)을 찾지 못했어요.")
+            st.caption("3D 모델을 불러오지 못했습니다.")
 
     # st.tabs는 체크할 때마다 첫 탭으로 돌아가서, 선택을 기억하는 버튼(라디오)으로 나눈다
-    VIEWS = ["분석 결과 (계약서·등기)", "직접 확인할 것 (미확인 체크리스트)"]  # 이름이 바뀌면 선택이 풀려서 고정
+    VIEWS = ["문서 분석", "현장·서류 체크리스트"]  # 이름이 바뀌면 선택이 풀려서 고정
     view_key = f"view_{lid}"
     if st.session_state.get(view_key, 0) not in (0, 1):
         st.session_state[view_key] = 0
@@ -675,74 +706,74 @@ else:
             st.markdown("**등기부 요약**")
             st.markdown(doc_html(registry_text, hl["marks"]["registry"], note_status), unsafe_allow_html=True)
 
-        st.markdown("#### 계약 전에 짚어 볼 내용")
+        st.markdown("### 주요 확인 사항")
         specials = res["items_by_key"]["special"].get("specials", [])
         if specials:
             done = bool(ai_state and ai_state.get("items"))  # 실패했으면 다시 누를 수 있게
-            label = "AI 설명을 받았어요" if done else ("AI 설명 다시 시도" if ai_state else "AI로 특약 설명 듣기")
+            label = "AI 설명 완료" if done else ("AI 설명 다시 시도" if ai_state else "AI 특약 설명")
             st.button(label, key=f"aibtn_{ai_key}",
                       disabled=done or st.session_state.ai_calls >= ai_parse.SESSION_LIMIT,
                       on_click=explain_specials, args=(ai_key, [s["sentence"] for s in specials]))
             if ai_state and ai_state.get("message"):
                 st.caption(ai_state["message"])
             elif not ai_state:
-                st.caption("Gemini가 특약을 쉬운 말로 풀어 주고 물어볼 질문을 만들어요. 판정은 규칙이 하고 AI는 바꾸지 않아요.")
+                st.caption("특약의 의미와 확인 질문을 제공합니다. 위험·주의 판정을 낮추지 않습니다.")
         if not hl["notes"]:
-            st.markdown("계약서와 등기에서 위험·주의로 표시할 부분이 없어요. 계약 당일 최신 등기부등본은 한 번 더 확인하세요.")
+            st.markdown("계약서와 등기에서 위험·주의로 표시할 부분이 없습니다. 계약 당일 최신 등기부등본은 한 번 더 확인하십시오.")
         for n in hl["notes"]:
             label, color, bg = TONE[n["status"]]
             with st.container(border=True, key=f"note_{n['no']}"):
                 st.markdown(f'<span class="sh-no" style="background:{color};margin-left:0">{n["no"]}</span> '
                             f'{badge(n["status"])}<b>{html.escape(n["title"])}</b>', unsafe_allow_html=True)
                 if n.get("sentence"):
-                    st.markdown(f'<div class="sh-muted">원문: “{html.escape(n["sentence"])}”</div>',
+                    st.markdown(f'<div class="sh-muted">원문: “{html.escape(display_text(n["sentence"]))}”</div>',
                                 unsafe_allow_html=True)
-                st.markdown(html.escape(n["detail"]))
+                st.markdown(html.escape(display_text(n["detail"])))
                 ai = n.get("ai")
                 if ai and n.get("by") != "AI":
-                    quote = f' (“{html.escape(ai["quote"])}”)' if ai["quote"] else ""
-                    st.markdown(f'<div style="margin-top:4px"><b>AI 설명</b>{quote}: {html.escape(ai["explain"])}</div>',
+                    quote = f' (“{html.escape(display_text(ai["quote"]))}”)' if ai["quote"] else ""
+                    st.markdown(f'<div style="margin-top:4px"><b>AI 설명</b>{quote}: {html.escape(display_text(ai["explain"]))}</div>',
                                 unsafe_allow_html=True)
                 if n["question"]:
-                    st.markdown(f'<div class="sh-muted">물어볼 것: {html.escape(n["question"])}</div>',
+                    st.markdown(f'<div class="sh-muted">물어볼 것: {html.escape(display_text(n["question"]))}</div>',
                                 unsafe_allow_html=True)
                 if ai and ai["question"] and ai["question"] != n["question"]:
-                    st.markdown(f'<div class="sh-muted">AI가 제안한 질문: {html.escape(ai["question"])}</div>',
+                    st.markdown(f'<div class="sh-muted">AI가 제안한 질문: {html.escape(display_text(ai["question"]))}</div>',
                                 unsafe_allow_html=True)
                 st.markdown(links(n.get("sources")), unsafe_allow_html=True)
         if specials:
-            st.caption("AI 설명은 참고용이에요. AI는 '정상'을 '확인 필요'로 올리기만 할 수 있고, 법률 자문이 아니에요.")
+            st.caption("AI 설명은 참고 자료이며 법률 자문이 아닙니다. 위험·주의 판정을 낮추지 않습니다.")
 
         unknown = [i for i in res["items"] if i["status"] == cc.UNKNOWN]
         ok = [i["name"] for i in res["items"] if i["status"] == cc.OK]
         if unknown:
-            st.markdown("#### 직접 확인이 필요한 것 (문서에 없거나 규칙으로 판단하지 못함)")
+            st.markdown("### 추가 확인 사항")
             for i in unknown:
-                st.markdown(f"- **{i['name']}** · {i['detail']}")
+                st.markdown(f"- **{i['name']}** · {display_text(i['detail'])}")
         if ok:
             st.markdown(f'<div class="sh-muted" style="margin-top:8px">문제없는 항목: {html.escape(", ".join(ok))}</div>',
                         unsafe_allow_html=True)
 
     else:
         st.markdown(f"**아직 미확인 {len(todo)}개** · 직접 확인함 {len(res['checklist']) - len(todo)}개")
-        st.caption("분석은 가상 문서를 본 결과예요. 실제 계약에서는 아래 서류·현장을 직접 확인해야 하고, "
-                   "확인하기 전까지는 미확인으로 남아요. 확인했으면 체크해 두세요(이 화면에서만 기억해요).")
+        st.caption("가상 문서의 분석 결과입니다. 실제 계약에서는 아래 서류와 현장을 직접 확인해야 합니다. "
+                   "확인한 항목을 체크하십시오. 현재 접속 중에만 저장됩니다.")
         for ck in res["checklist"]:
             checked = st.session_state.get(f"ck_{lid}_{ck['key']}", False)
             status = cc.SELF_CHECKED if checked else cc.UNCHECKED
             head = f"{'✓ ' if checked else ''}{ck['title']} · {status}" + (" · 꼭 확인" if ck["important"] and not checked else "")
             with st.expander(head, expanded=ck["important"] and not checked):
-                st.markdown(ck["why"])
+                st.markdown(display_text(ck["why"]))
                 if ck["hint"]:
-                    st.markdown(f'<div class="sh-muted">문서에서 본 것: {html.escape(ck["hint"])}</div>',
+                    st.markdown(f'<div class="sh-muted">문서에서 본 것: {html.escape(display_text(ck["hint"]))}</div>',
                                 unsafe_allow_html=True)
-                st.markdown("\n".join(f"- {h}" for h in ck["how"]))
+                st.markdown("\n".join(f"- {display_text(h)}" for h in ck["how"]))
                 st.markdown(f'<div class="sh-muted">어디서: {html.escape(ck["where"])}</div>', unsafe_allow_html=True)
                 if ck.get("ask"):
-                    st.markdown(f'<div class="sh-muted">요청할 것: {html.escape(ck["ask"])}</div>', unsafe_allow_html=True)
+                    st.markdown(f'<div class="sh-muted">요청할 것: {html.escape(display_text(ck["ask"]))}</div>', unsafe_allow_html=True)
                 st.markdown(links(ck["sources"]), unsafe_allow_html=True)
                 st.markdown(links(ck["cases"], "실제 사례 (참고용, 사기 판단 근거 아님)"), unsafe_allow_html=True)
-                st.checkbox("직접 확인했어요", key=f"ck_{lid}_{ck['key']}")
+                st.checkbox("확인 완료", key=f"ck_{lid}_{ck['key']}")
 
 
 
@@ -750,7 +781,7 @@ if step in (2, 3):  # ① 화면처럼 ②·③에서도 AI 사용량을 볼 수
     with st.expander("AI 검색 사용량 · 한도 안내"):
         limit_box()
 
-st.markdown('<footer class="sh-footer"><b>Safe Home</b> · 처음 자취하는 당신을 위한 작은 길잡이<br>'
-            '시연용 서비스예요. 매물·계약서·등기는 가상 샘플이며, 시세 비교는 국토교통부 실거래 자료를 사용해요.<br>'
-            '계약 점검은 문서의 규칙 기반 위험 신호 안내예요. 실제 계약 전에는 최신 서류와 전문가 확인이 필요해요.</footer>',
+st.markdown('<footer class="sh-footer"><b>Safe Home</b> · 대학가 방 추천·계약 점검<br>'
+            '시연용 서비스입니다. 매물·계약서·등기는 가상 샘플이며, 시세 비교는 국토교통부 실거래 자료를 사용합니다.<br>'
+            '계약 점검은 문서의 규칙 기반 위험 신호 안내입니다. 실제 계약 전에는 최신 서류와 전문가 확인이 필요합니다.</footer>',
             unsafe_allow_html=True)

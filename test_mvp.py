@@ -213,7 +213,7 @@ def test_meeting_1113(rows, docs, regs):
     ai_parse.os.environ["SAFEHOME_API_URL"] = "https://example.test/api/parse"
     items, msg = ai_parse.request_specials(["반려동물은 키울 수 없다."],
                                            post=lambda url, p: (_ for _ in ()).throw(OSError("down")))
-    assert items is None and "규칙" in msg
+    assert items is None and "기본 분석" in msg
     items, msg = ai_parse.request_specials(["반려동물은 키울 수 없다."],
                                            post=lambda url, p: (200, json.dumps({"ok": True, "items": [good[0] | {"index": 0}]})))
     assert items and msg is None

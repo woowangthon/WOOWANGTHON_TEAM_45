@@ -3,19 +3,20 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Safe Home · 자취방 안심 점검</title>
+  <title>Safe Home · 방 추천과 계약 점검</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@stlite/browser@1.4.0/build/stlite.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.css" />
   <style>
     body { margin: 0; background: #f5f8f5; }
-    #loading { font-family: system-ui, sans-serif; max-width: 380px; margin: 18vh auto; padding: 32px 24px;
-      text-align: center; color: #16342e; line-height: 1.8; border: 1px solid #dce7e1; border-radius: 24px; background: white; }
+    #loading { font-family: "Pretendard Variable", Pretendard, sans-serif; max-width: 380px; margin: 18vh auto; padding: 32px 24px;
+      text-align: center; color: #16342e; line-height: 1.8; border: 1px solid #dce7e1; border-radius: 12px; background: white; }
     #loading strong { display: block; font-size: 26px; margin-bottom: 12px; }
     #loading small { display: block; color: #61756e; margin-top: 12px; }
   </style>
 </head>
 <body>
   <div id="root">
-    <div id="loading"><strong>⌂ Safe Home</strong>안심할 수 있는 내 방을 준비하고 있어요.<small>처음 접속은 20~40초 정도 걸릴 수 있어요.</small></div>
+    <div id="loading"><strong>Safe Home</strong>방 검색 화면을 불러오는 중입니다.<small>처음 접속은 20~40초 정도 걸릴 수 있습니다.</small></div>
   </div>
   <script type="module">
     import { mount } from "https://cdn.jsdelivr.net/npm/@stlite/browser@1.4.0/build/stlite.js";
@@ -38,7 +39,7 @@
           "app.py": { url: "./app.py" },
           "recommend.py": { url: "./recommend.py" },
           "ai_parse.py": { url: "./ai_parse.py" },
-          // AI 조건 분석은 같은 사이트의 /api/parse(서버리스 함수)를 불러요. 키는 서버에만 있어요.
+          // AI 조건 분석은 같은 사이트의 /api/parse(서버리스 함수)를 호출합니다. 키는 서버에만 있습니다.
           "site_origin.txt": { data: location.origin },
           "contract_check.py": { url: "./contract_check.py" },
           "db_seed.py": { url: "./db_seed.py" },

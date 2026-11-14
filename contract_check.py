@@ -211,23 +211,23 @@ def parse_registry(text):
 # (유형, 상태, 이 문장들이 모두 들어 있으면 해당, 설명, 물어볼 질문)
 SPECIAL_RULES = [
     ("전입신고 제한", RISK, [r"전입", r"(하지\s*않|불가|금지|못)"],
-     "전입신고를 못 하면 대항력과 우선변제권을 갖추기 어려워 보증금을 지키기 힘들 수 있어요.",
-     "전입신고를 하지 말라는 이유가 무엇인가요? 이 특약을 삭제해 주실 수 있나요?"),
+     "전입신고를 못 하면 대항력과 우선변제권을 갖추기 어려워 보증금을 지키기 힘들 수 있습니다.",
+     "전입신고를 하지 말라는 이유가 무엇입니까? 이 특약을 삭제해 주시겠습니까?"),
     ("보증금 반환 지연", RISK, [r"(새|다음|신규)\s*(임차인|세입자)", r"반환"],
-     "보증금 반환을 다음 세입자 입주에 묶어 두면 반환이 늦어지거나 받지 못할 수 있어요.",
-     "계약 종료일에 새 임차인과 관계없이 보증금을 돌려주신다고 특약을 바꿔 주실 수 있나요?"),
+     "보증금 반환을 다음 세입자 입주에 묶어 두면 반환이 늦어지거나 받지 못할 수 있습니다.",
+     "계약 종료일에 새 임차인과 관계없이 보증금을 돌려주신다고 특약을 변경해 주시겠습니까?"),
     ("담보 추가 설정 허용", RISK, [r"(근저당|대출|담보)", r"(동의|허용|설정할\s*수)"],
-     "계약 후 집주인이 대출을 더 받으면 내 보증금 순위가 밀릴 수 있어요.",
-     "계약 기간 중 추가 대출이나 근저당 설정을 하지 않는다는 특약으로 바꿀 수 있나요?"),
+     "계약 후 집주인이 대출을 더 받으면 내 보증금 순위가 밀릴 수 있습니다.",
+     "계약 기간 중 추가 대출이나 근저당 설정을 하지 않는다는 특약으로 바꿀 수 있습니까?"),
     ("수리비 전가", CAUTION, [r"수리", r"임차인", r"부담"],
-     "모든 수리비를 세입자가 내면 보일러·배관 같은 큰 고장 비용도 떠안을 수 있어요.",
-     "임차인이 부담하는 수리 범위를 소모품·고의 과실로 한정해 주실 수 있나요?"),
+     "모든 수리비를 세입자가 내면 보일러·배관 같은 큰 고장 비용도 떠안을 수 있습니다.",
+     "임차인이 부담하는 수리 범위를 소모품·고의 과실로 한정해 주시겠습니까?"),
     ("과도한 원상복구", CAUTION, [r"원상\s*복구", r"(도배|장판|전체|모든|전부)"],
-     "자연스럽게 낡은 부분까지 세입자 비용으로 고치게 하는 조항일 수 있어요.",
-     "통상적인 사용으로 생긴 마모는 원상복구 대상에서 빼 주실 수 있나요?"),
+     "자연스럽게 낡은 부분까지 세입자 비용으로 고치게 하는 조항일 수 있습니다.",
+     "통상적인 사용으로 생긴 마모는 원상복구 대상에서 제외해 주시겠습니까?"),
     ("중도 해지 위약금", CAUTION, [r"중도", r"(해지|퇴실)", r"(위약금|공제|보증금에서)"],
-     "중도 퇴실 시 공제 금액이 지나치게 크면 손해가 커질 수 있어요.",
-     "중도 퇴실 시 공제 금액의 기준과 상한을 정해 주실 수 있나요?"),
+     "중도 퇴실 시 공제 금액이 지나치게 크면 손해가 커질 수 있습니다.",
+     "중도 퇴실 시 공제 금액의 기준과 상한을 정해 주시겠습니까?"),
 ]
 SAFE_RULES = [
     ("담보 설정 금지 (세입자 보호)", [r"담보|근저당", r"설정하지\s*않"]),
@@ -245,12 +245,12 @@ def classify_special(sentence):
             return dict(type=name, status=status, why=why, question=q, sentence=sentence)
     for name, pats in SAFE_RULES:
         if all(re.search(p, sentence) for p in pats):
-            return dict(type=name, status=OK, why="세입자에게 유리한 보호 조항이에요.", question=None,
+            return dict(type=name, status=OK, why="세입자에게 유리한 보호 조항입니다.", question=None,
                         sentence=sentence)
     # 규칙이 모르는 문장을 '정상'으로 두면 위험한 문구도 문제없어 보이므로 '확인 필요'로 보낸다
     return dict(type="규칙에 없는 문장", status=UNKNOWN,
-                why="등록된 유형에 없는 특약이라 자동으로 판단하지 못했어요. 직접 읽고 불리한 내용이 없는지 확인하세요.",
-                question="이 특약이 정확히 어떤 의미인지, 임차인에게 불리한 내용은 없는지 설명해 주실 수 있나요?",
+                why="등록된 유형에 없는 특약이라 자동으로 판단하지 못했습니다. 직접 읽고 불리한 내용이 없는지 확인하십시오.",
+                question="이 특약이 정확히 어떤 의미인지, 임차인에게 불리한 내용은 없는지 설명해 주시겠습니까?",
                 sentence=sentence)
 
 
@@ -304,7 +304,7 @@ def apply_ai(result, ai_items):
     return result
 
 
-UNKNOWN_QUESTION = "이 특약이 정확히 어떤 의미인지, 임차인에게 불리한 내용은 없는지 설명해 주실 수 있나요?"
+UNKNOWN_QUESTION = "이 특약이 정확히 어떤 의미인지, 임차인에게 불리한 내용은 없는지 설명해 주시겠습니까?"
 
 
 # ── 항목별 점검 ───────────────────────────────────────────────
@@ -318,34 +318,34 @@ def check(contract_text, registry_text, today=None, kind=None, ai_items=None):
     items = []
 
     # 1. 임대인 = 등기 소유자
-    owner_q = "등기부상 소유자와 계약하는 분이 같은 사람인지 신분증으로 확인할 수 있을까요?"
+    owner_q = "등기부상 소유자와 계약하는 분이 같은 사람인지 신분증으로 확인할 수 있습니까?"
     if r["trust"]:
         items.append(_item("owner", "임대인·소유자 일치", RISK,
-                           "등기상 소유자가 신탁회사예요. 신탁회사(수탁자)의 동의 없이 맺은 계약은 보호받기 어려울 수 있어요.",
-                           r["lines"].get("owner"), "신탁회사의 임대 동의서(신탁원부 확인 포함)를 받을 수 있나요?"))
+                           "등기상 소유자가 신탁회사입니다. 신탁회사(수탁자)의 동의 없이 맺은 계약은 보호받기 어려울 수 있습니다.",
+                           r["lines"].get("owner"), "신탁회사의 임대 동의서(신탁원부 확인 포함)를 받을 수 있습니까?"))
     elif not c["lessor"] or not r["owner"]:
-        items.append(_item("owner", "임대인·소유자 일치", UNKNOWN, "임대인 또는 등기 소유자 정보가 문서에 없어요.",
+        items.append(_item("owner", "임대인·소유자 일치", UNKNOWN, "임대인 또는 등기 소유자 정보가 문서에 없습니다.",
                            None, owner_q))
     elif c["lessor"] == r["owner"]:
-        items.append(_item("owner", "임대인·소유자 일치", OK, f"임대인과 등기 소유자가 모두 '{r['owner']}'(으)로 같아요.",
+        items.append(_item("owner", "임대인·소유자 일치", OK, f"임대인과 등기 소유자가 모두 '{r['owner']}'(으)로 같습니다.",
                            r["lines"].get("owner")))
     elif c["agent"] and ("위임" in c["agent"]):
         items.append(_item("owner", "임대인·소유자 일치", CAUTION,
-                           f"대리인 계약이에요. 계약서 임대인 '{c['lessor']}', 등기 소유자 '{r['owner']}'.",
+                           f"대리인 계약입니다. 계약서 임대인 '{c['lessor']}', 등기 소유자 '{r['owner']}'.",
                            c["lines"].get("agent"),
-                           "소유자 본인의 인감이 찍힌 위임장과 인감증명서를 확인하고, 소유자와 직접 통화할 수 있나요?"))
+                           "소유자 본인의 인감이 찍힌 위임장과 인감증명서를 확인하고, 소유자와 직접 통화할 수 있습니까?"))
     else:
         items.append(_item("owner", "임대인·소유자 일치", RISK,
-                           f"계약서 임대인 '{c['lessor']}'와 등기 소유자 '{r['owner']}'가 달라요.",
-                           c["lines"].get("lessor"), "소유자가 아닌 분과 계약하는 이유와 권한을 증명할 서류가 있나요?"))
+                           f"계약서 임대인 '{c['lessor']}'와 등기 소유자 '{r['owner']}'가 다릅니다.",
+                           c["lines"].get("lessor"), "소유자가 아닌 분과 계약하는 이유와 권한을 증명할 서류가 있습니까?"))
 
     # 2. 보증금 회수 위험 비율 = (근저당 채권최고액 + 선순위 보증금 + 내 보증금) ÷ 시세
     missing = [n for n, v in [("근저당", r["mortgage"]), ("선순위 보증금", c["prior"]),
                               ("보증금", c["deposit"]), ("건물 시세", c["value"])] if v is None]
     if missing or not c["value"]:
         items.append(_item("ratio", "보증금 회수 위험 비율", UNKNOWN,
-                           f"계산에 필요한 값이 없어요: {', '.join(missing) or '건물 시세'}",
-                           None, "등기부 을구의 근저당 금액과 먼저 들어온 세입자들의 보증금 합계를 알려 주실 수 있나요?"))
+                           f"계산에 필요한 값이 없습니다: {', '.join(missing) or '건물 시세'}",
+                           None, "등기부 을구의 근저당 금액과 먼저 들어온 세입자들의 보증금 합계를 알려 주시겠습니까?"))
     else:
         ratio = (r["mortgage"] + c["prior"] + c["deposit"]) / c["value"]
         st = RISK if ratio >= RATIO_RISK else CAUTION if ratio >= RATIO_CAUTION else OK
@@ -353,73 +353,73 @@ def check(contract_text, registry_text, today=None, kind=None, ai_items=None):
                            f"(근저당 {r['mortgage']:,} + 선순위 보증금 {c['prior']:,} + 내 보증금 {c['deposit']:,}) ÷ "
                            f"시세 {c['value']:,} = {ratio:.0%}  (주의 {RATIO_CAUTION:.0%}, 위험 {RATIO_RISK:.0%} 기준)",
                            r["lines"].get("mortgage"),
-                           None if st == OK else "집이 경매로 넘어가도 제 보증금을 돌려받을 수 있는지, 보증보험 가입이 가능한지 확인할 수 있을까요?"))
+                           None if st == OK else "집이 경매로 넘어가도 제 보증금을 돌려받을 수 있는지, 보증보험 가입이 가능한지 확인할 수 있습니까?"))
         items[-1]["ratio"] = ratio
 
     # 3. 압류·가압류 — 두 줄을 따로 본다. 하나라도 '있음'이면 위험, 하나라도 빠져 있으면 확인 필요
     if r["seizure"] or r["provisional"]:
-        items.append(_item("seizure", "압류·가압류", RISK, "압류 또는 가압류가 있어요. 집주인의 빚 문제로 집이 넘어갈 수 있어요.",
+        items.append(_item("seizure", "압류·가압류", RISK, "압류 또는 가압류가 있습니다. 집주인의 빚 문제로 집이 넘어갈 수 있습니다.",
                            r["lines"].get("seizure") if r["seizure"] else r["lines"].get("provisional"),
-                           "압류(가압류)를 언제까지 해제하실 수 있나요? 해제 확인 후 계약하고 싶어요."))
+                           "압류(가압류)를 언제까지 해제하실 수 있습니까? 해제 확인 후 계약하고 싶습니다."))
     elif r["seizure"] is None or r["provisional"] is None:
         missing = [n for n, v in (("압류", r["seizure"]), ("가압류", r["provisional"])) if v is None]
         items.append(_item("seizure", "압류·가압류", UNKNOWN,
-                           f"등기에 {'·'.join(missing)} 기재 여부가 없어요.",
-                           None, "최신 등기부등본(갑구)을 계약 당일 다시 떼어 볼 수 있나요?"))
+                           f"등기에 {'·'.join(missing)} 기재 여부가 없습니다.",
+                           None, "최신 등기부등본(갑구)을 계약 당일 다시 떼어 볼 수 있습니까?"))
     else:
-        items.append(_item("seizure", "압류·가압류", OK, "압류·가압류 기재가 없어요.", r["lines"].get("seizure")))
+        items.append(_item("seizure", "압류·가압류", OK, "압류·가압류 기재가 없습니다.", r["lines"].get("seizure")))
 
     # 4. 신탁 등기
     if r["trust"] is None:
-        items.append(_item("trust", "신탁 등기", UNKNOWN, "신탁 여부가 문서에 없어요.", None,
-                           "이 건물이 신탁된 부동산인지 확인할 수 있을까요?"))
+        items.append(_item("trust", "신탁 등기", UNKNOWN, "신탁 여부가 문서에 없습니다.", None,
+                           "이 건물이 신탁된 부동산인지 확인할 수 있습니까?"))
     elif r["trust"]:
-        items.append(_item("trust", "신탁 등기", RISK, "신탁 등기가 있어요. 실제 소유권은 신탁회사에 있어요.",
-                           r["lines"].get("trust"), "신탁원부와 신탁회사의 임대 동의서를 받을 수 있나요?"))
+        items.append(_item("trust", "신탁 등기", RISK, "신탁 등기가 있습니다. 실제 소유권은 신탁회사에 있습니다.",
+                           r["lines"].get("trust"), "신탁원부와 신탁회사의 임대 동의서를 받을 수 있습니까?"))
     else:
-        items.append(_item("trust", "신탁 등기", OK, "신탁 등기가 없어요.", r["lines"].get("trust")))
+        items.append(_item("trust", "신탁 등기", OK, "신탁 등기가 없습니다.", r["lines"].get("trust")))
 
     # 5. 임차권등기 (이전 세입자가 보증금을 못 돌려받은 흔적)
     if r["lease_reg"] is None:
-        items.append(_item("lease_reg", "임차권등기", UNKNOWN, "임차권등기 여부가 문서에 없어요.", None,
-                           "이전 세입자가 보증금을 돌려받지 못해 임차권등기를 한 적이 있나요?"))
+        items.append(_item("lease_reg", "임차권등기", UNKNOWN, "임차권등기 여부가 문서에 없습니다.", None,
+                           "이전 세입자가 보증금을 돌려받지 못해 임차권등기를 한 적이 있습니까?"))
     elif r["lease_reg"]:
         items.append(_item("lease_reg", "임차권등기", CAUTION,
-                           "다른 세입자가 보증금을 돌려받지 못해 임차권등기를 한 기록이 있어요.",
-                           r["lines"].get("lease_reg"), "임차권등기가 된 이유와 그 보증금이 돌려졌는지 알려 주실 수 있나요?"))
+                           "다른 세입자가 보증금을 돌려받지 못해 임차권등기를 한 기록이 있습니다.",
+                           r["lines"].get("lease_reg"), "임차권등기가 된 이유와 그 보증금이 돌려졌는지 알려 주시겠습니까?"))
     else:
-        items.append(_item("lease_reg", "임차권등기", OK, "임차권등기 기록이 없어요.", r["lines"].get("lease_reg")))
+        items.append(_item("lease_reg", "임차권등기", OK, "임차권등기 기록이 없습니다.", r["lines"].get("lease_reg")))
 
     # 6. 최근 소유권 이전
     if not r["transfer"]:
-        items.append(_item("transfer", "최근 소유권 이전", UNKNOWN, "소유권 이전 날짜를 찾지 못했어요.", None,
-                           "현재 소유자가 언제부터 이 집을 소유했나요?"))
+        items.append(_item("transfer", "최근 소유권 이전", UNKNOWN, "소유권 이전 날짜를 찾지 못했습니다.", None,
+                           "현재 소유자가 언제부터 이 집을 소유했습니까?"))
     else:
         days = (ref - r["transfer"]).days
         if days <= RECENT_TRANSFER_DAYS:
             items.append(_item("transfer", "최근 소유권 이전", CAUTION,
-                               f"계약 작성일 기준 {days}일 전에 소유자가 바뀌었어요. 매매 직후 계약은 한 번 더 확인하세요.",
-                               r["lines"].get("owner"), "최근 매매된 집인가요? 매매 잔금과 대출 상황을 알려 주실 수 있나요?"))
+                               f"계약 작성일 기준 {days}일 전에 소유자가 변경되었습니다. 매매 직후 계약은 한 번 더 확인하십시오.",
+                               r["lines"].get("owner"), "최근 매매된 집입니까? 매매 잔금과 대출 상황을 알려 주시겠습니까?"))
         else:
-            items.append(_item("transfer", "최근 소유권 이전", OK, f"소유권 이전 후 {days}일이 지났어요.",
+            items.append(_item("transfer", "최근 소유권 이전", OK, f"소유권 이전 후 {days}일이 지났습니다.",
                                r["lines"].get("owner")))
 
     # 7. 납세증명서 (임대인의 국세·지방세 체납 여부)
-    tax_q = "임대인의 국세·지방세 납세증명서를 보여 주실 수 있나요?"
+    tax_q = "임대인의 국세·지방세 납세증명서를 제시해 주시겠습니까?"
     if not c["tax"]:
-        items.append(_item("tax", "납세증명서 확인", UNKNOWN, "납세증명서 확인 여부가 문서에 없어요.", None, tax_q))
+        items.append(_item("tax", "납세증명서 확인", UNKNOWN, "납세증명서 확인 여부가 문서에 없습니다.", None, tax_q))
     elif "확인함" in c["tax"] or c["tax"].startswith("확인"):
-        items.append(_item("tax", "납세증명서 확인", OK, "납세증명서를 확인했다고 적혀 있어요.", c["lines"].get("tax")))
+        items.append(_item("tax", "납세증명서 확인", OK, "납세증명서를 확인했다고 적혀 있습니다.", c["lines"].get("tax")))
     else:
         items.append(_item("tax", "납세증명서 확인", CAUTION,
-                           "납세증명서를 확인하지 않았어요. 세금 체납은 보증금보다 먼저 배당될 수 있어요.",
+                           "납세증명서를 확인하지 않았습니다. 세금 체납은 보증금보다 먼저 배당될 수 있습니다.",
                            c["lines"].get("tax"), tax_q))
 
     # 8. 특약
     specials = [classify_special(s) for s in c["specials"]]
     if not c["has_special_section"]:
-        items.append(_item("special", "특약 조항", UNKNOWN, "특약사항 부분을 찾지 못했어요.", None,
-                           "특약사항이 있다면 전부 문서로 받을 수 있나요?"))
+        items.append(_item("special", "특약 조항", UNKNOWN, "특약사항 부분을 찾지 못했습니다.", None,
+                           "특약사항이 있다면 전부 문서로 받을 수 있습니까?"))
     else:
         items.append(_item("special", "특약 조항", OK, ""))
     for s in specials:  # 근거 법령 연결 (11/13)
@@ -455,7 +455,7 @@ def _special_summary(it):
         parts.append(f"규칙으로 판단하지 못한 특약 {len(unread)}개(직접 확인): "
                      + " / ".join(f"「{s['sentence']}」" for s in unread))
     it["status"] = worst
-    it["detail"] = " · ".join(parts) or ("특약 없음" if not specials else "위험 유형에 해당하는 특약이 없어요.")
+    it["detail"] = " · ".join(parts) or ("특약 없음" if not specials else "위험 유형에 해당하는 특약이 없습니다.")
     first = (bad or unread or [None])[0]
     it["evidence"] = first["sentence"] if first else None
     it["question"] = first["question"] if first else None
@@ -511,7 +511,7 @@ def checklist(c, r=None, kind=None):
                         status=UNCHECKED, sources=refs(*sources), cases=[CASES[k] for k in cases], ask=ask))
 
     add("registry", "등기사항증명서 (등기부등본) 최신본",
-        "위 분석은 가상 등기 요약을 본 결과예요. 실제 계약에서는 계약 당일·잔금 직전의 최신 등기를 직접 떼어 봐야 해요.",
+        "위 분석은 가상 등기 요약을 본 결과입니다. 실제 계약에서는 계약 당일·잔금 직전의 최신 등기를 직접 떼어 확인해야 합니다.",
         [f"갑구 소유자가 계약서 임대인 '{lessor}'{_wa(lessor)} 같은지" + (" (대리인 계약이면 위임장의 소유자와도)" if c["agent"] else ""),
          "갑구에 압류·가압류·가처분·신탁 등기가 있는지 (신탁이면 신탁원부와 신탁회사 동의서 필요)",
          "을구 근저당 채권최고액 (아래 보증금 비율 계산에 넣기)",
@@ -520,37 +520,37 @@ def checklist(c, r=None, kind=None):
         "대법원 인터넷등기소에서 주소로 열람 (누구나 가능)",
         hint=(f"가상 등기 소유자: {r['owner']}" if r.get("owner") else None),
         important=True, sources=("신탁법4", "주임법3의2"), cases=("사칭", "신탁"),
-        ask="계약 당일 최신 등기사항증명서를 같이 확인할 수 있을까요?")
+        ask="계약 당일 최신 등기사항증명서를 같이 확인할 수 있습니까?")
     if multi:
         add("prior", "선순위 보증금 (확정일자 부여 현황)",
-            "다가구주택은 한 건물의 다른 세입자 보증금이 내 보증금보다 먼저 배당될 수 있어요. 계약서에 적힌 선순위 금액이 맞는지 서류로 확인해야 해요.",
+            "다가구주택은 한 건물의 다른 세입자 보증금이 내 보증금보다 먼저 배당될 수 있습니다. 계약서에 적힌 선순위 금액이 맞는지 서류로 확인해야 합니다.",
             ["임대인에게 확정일자 부여 현황(다른 호실 보증금·확정일자)을 보여 달라고 요청",
              "또는 임대인 동의를 받아 주민센터나 인터넷등기소에서 열람",
              "(근저당 + 선순위 보증금 + 내 보증금) ÷ 건물 시세를 계산 (위 '보증금 회수 위험 비율' 항목과 같은 계산)"],
             "임대인 제시 · 주민센터 · 인터넷등기소 (임대차 정보 열람)",
-            hint=(f"계약서에는 선순위 보증금 {c['prior']:,}원으로 적혀 있어요." if c["prior"] is not None
-                  else "계약서에 선순위 보증금이 적혀 있지 않아요."),
+            hint=(f"계약서에는 선순위 보증금 {c['prior']:,}원으로 적혀 있습니다." if c["prior"] is not None
+                  else "계약서에 선순위 보증금이 적혀 있지 않습니다."),
             important=True, sources=("주임법3의6", "주임법3의7", "주임법3의2", "주임법8"), cases=("선순위",),
-            ask="계약 전에 이 건물의 확정일자 부여 현황(선순위 보증금)을 보여 주실 수 있나요?")
+            ask="계약 전에 이 건물의 확정일자 부여 현황(선순위 보증금)을 제시해 주시겠습니까?")
     else:
         add("prior", "이 호실의 선순위 세입자·보증금",
-            "오피스텔은 호실마다 등기가 따로 있어요. 이 호실에 먼저 들어온 세입자나 근저당이 있으면 내 보증금 순위가 밀려요.",
+            "오피스텔은 호실마다 등기가 따로 있습니다. 이 호실에 먼저 들어온 세입자나 근저당이 있으면 내 보증금 순위가 밀립니다.",
             ["등기부 을구 근저당과 임차권등기 확인", "현재 사는 세입자가 있으면 퇴거일과 보증금 반환 여부 확인",
              "확정일자 부여 현황을 임대인에게 요청"],
             "인터넷등기소 · 임대인 제시",
             hint=None, important=False, sources=("주임법3의6", "주임법3의2"), cases=("선순위",),
-            ask="이 호실에 현재 세입자나 확정일자를 받은 계약이 있나요?")
+            ask="이 호실에 현재 세입자나 확정일자를 받은 계약이 있습니까?")
     tax_unchecked = not c["tax"] or not re.search(r"(확인함|확인\s*완료|제시|열람\s*완료)", c["tax"] or "")
     add("tax", "집주인 세금 체납 (납세증명서)",
-        "집주인이 세금을 안 냈으면 집이 공매로 넘어갈 때 세금이 내 보증금보다 먼저 빠져나갈 수 있어요.",
+        "집주인이 세금을 안 냈으면 집이 공매로 넘어갈 때 세금이 내 보증금보다 먼저 빠져나갈 수 있습니다.",
         ["임대인에게 국세·지방세 납세증명서를 요청 (계약 때 제시 의무)",
          "또는 임대인 동의를 받아 세무서·주민센터에서 미납 세금 열람"],
         "임대인 제시 · 세무서 · 주민센터",
-        hint=(f"계약서에는 '{c['tax']}'(으)로 적혀 있어요." if c["tax"] else "계약서에 납세증명서 확인 여부가 없어요."),
+        hint=(f"계약서에는 '{c['tax']}'(으)로 적혀 있습니다." if c["tax"] else "계약서에 납세증명서 확인 여부가 없습니다."),
         important=tax_unchecked, sources=("주임법3의7", "국세징수법109"), cases=("세금",),
-        ask="임대인의 국세·지방세 납세증명서를 보여 주실 수 있나요?")
+        ask="임대인의 국세·지방세 납세증명서를 제시해 주시겠습니까?")
     add("building", "건축물대장",
-        "불법 증축·용도 변경된 건물(위반건축물)은 이행강제금 대상이고, 전세대출·보증보험 가입이 막힐 수 있어요.",
+        "불법 증축·용도 변경된 건물(위반건축물)은 이행강제금 대상이고, 전세대출·보증보험 가입이 막힐 수 있습니다.",
         ["'위반건축물' 표시가 있는지",
          "용도가 주거용인지 (오피스텔은 업무시설로 되어 있어도 주거 사용이 가능한지 확인)" if not multi
          else "다가구주택의 가구 수와 실제 방 개수가 맞는지 (방 쪼개기 여부)",
@@ -559,22 +559,22 @@ def checklist(c, r=None, kind=None):
         sources=("건축법79",), cases=("위반건축물",))
     if c["agent"]:
         add("agent", "대리인 권한",
-            "소유자가 아닌 사람과 계약하면, 권한이 없을 때 보증금을 돌려받기 어려울 수 있어요.",
+            "소유자가 아닌 사람과 계약하면, 권한이 없을 때 보증금을 돌려받기 어려울 수 있습니다.",
             ["소유자 인감이 찍힌 위임장과 본인발급 인감증명서 확인", "소유자 본인과 영상통화·통화로 계약 사실 확인",
              "보증금은 소유자 명의 계좌로만 보내기"],
             "임대인(소유자) 직접",
             hint=f"계약서 대리인 줄: {c['agent']}", important=True, sources=("민법114",), cases=("사칭",),
-            ask="소유자분 명의 계좌로 보증금을 보내도 될까요?")
+            ask="소유자분 명의 계좌로 보증금을 보내도 되겠습니까?")
     add("broker", "중개사무소와 확인·설명서",
-        "중개사는 권리관계를 확인해 설명할 의무가 있어요. 확인·설명서를 서면으로 받아 두면 나중에 근거가 돼요.",
+        "중개사는 권리관계를 확인해 설명할 의무가 있습니다. 확인·설명서를 서면으로 받아 두면 나중에 근거가 됩니다.",
         ["등록된 중개사무소인지 (국가공간정보포털 부동산중개업 조회)", "중개대상물 확인·설명서를 서면으로 받기"],
         "국가공간정보포털 · 중개사무소",
         sources=("중개사법25",), cases=("중개사",))
     add("site", "현장 상태",
-        "문서로는 알 수 없는 집 상태는 직접 봐야 해요. 입주 전 사진을 남기면 퇴실 때 원상복구 다툼을 줄일 수 있어요.",
+        "문서로는 알 수 없는 집 상태는 직접 확인해야 합니다. 입주 전 사진을 남기면 퇴실 때 원상복구 다툼을 줄일 수 있습니다.",
         ["실제 호수·구조가 계약서와 같은지", "누수·곰팡이 흔적 (천장, 창틀, 화장실)", "보일러·수압·온수",
          "도어락·창문 잠금 (방범)", "밤 시간 소음", "입주 날 집 상태 사진·영상 남기기"],
-        "직접 방문 (낮·밤 한 번씩이면 더 좋아요)")
+        "직접 방문 (낮·밤 한 번씩이면 더 좋습니다)")
     return out
 
 
@@ -648,8 +648,8 @@ def line_marks(line, doc_marks):
 def message_draft(listing_name, questions):
     """집주인·중개사에게 보낼 문자 초안 (템플릿 기반, AI 없음)."""
     if not questions:
-        return f"안녕하세요, {listing_name} 매물 계약 관련해 연락드립니다. 계약 전에 최신 등기부등본을 한 번 더 확인하고 싶어요. 감사합니다."
+        return f"안녕하세요, {listing_name} 매물 계약 관련해 연락드립니다. 계약 전에 최신 등기부등본을 한 번 더 확인하고 싶습니다. 감사합니다."
     body = "\n".join(f"{n}. {q}" for n, q in enumerate(questions, 1))
     return (f"안녕하세요, {listing_name} 매물 계약을 고민 중인 학생입니다.\n"
-            f"계약 전에 몇 가지 확인하고 싶어 연락드려요.\n\n{body}\n\n"
+            f"계약 전에 몇 가지 확인하고 싶어 연락드립니다.\n\n{body}\n\n"
             "답변 주시면 확인 후 다시 연락드리겠습니다. 감사합니다.")

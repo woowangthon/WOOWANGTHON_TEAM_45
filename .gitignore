@@ -1,0 +1,4 @@
+__pycache__/
+*.py[cod]
+.agents/skills/*/*
+!.agents/skills/*/SKILL.md

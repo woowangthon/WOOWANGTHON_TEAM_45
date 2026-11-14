@@ -1,6 +1,6 @@
 """브라우저(stlite)에서 /api/parse(Vercel 서버리스 함수 → Gemini)를 부르는 부분.
 
-- Gemini 키는 여기 없어요. 키는 Vercel 서버리스 함수(api/parse.js)에만 있어요 (11/12 회의 결정).
+- Gemini 키는 여기 없습니다. 키는 Vercel 서버리스 함수(api/parse.js)에만 있습니다 (11/12 회의 결정).
 - 실패하면 None과 안내 문구를 돌려주고, 화면은 규칙 해석(recommend.parse_sentence)으로 대신해요.
 
 반환: (fields 또는 None, 안내 문구 또는 None)
@@ -43,7 +43,7 @@ def api_url():
 
 
 def _post_browser(url, payload):
-    """stlite(Pyodide)는 웹 워커 안에서 돌아서 동기 XMLHttpRequest를 쓸 수 있어요."""
+    """stlite(Pyodide)는 웹 워커 안에서 돌아서 동기 XMLHttpRequest를 쓸 수 있습니다."""
     from js import XMLHttpRequest  # noqa: 브라우저에서만 존재
 
     req = XMLHttpRequest.new()
@@ -105,27 +105,27 @@ def _post_local(url, payload):
 def request_parse(text, post=None):
     text = (text or "").strip()
     if not text:
-        return None, "문장을 입력해 주세요."
+        return None, "문장을 입력하십시오."
     if len(text) > MAX_CHARS:
-        return None, f"문장은 {MAX_CHARS}자 이내로 써 주세요."
+        return None, f"문장은 {MAX_CHARS}자 이내로 입력하십시오."
     url = api_url()
     if not url:
-        return None, "AI 연결 주소가 없어요(로컬 실행). 규칙 해석으로 대신할게요."
+        return None, "AI 연결을 사용할 수 없습니다. 규칙 해석으로 검색합니다."
     if post is None:
         post = _post_browser if sys.platform == "emscripten" else _post_local
     try:
         status, body = post(url, {"text": text})
         data = json.loads(body) if body else {}
     except Exception:  # 네트워크·형식 오류
-        return None, "AI 서버에 연결하지 못했어요. 규칙 해석으로 대신할게요."
+        return None, "AI 서버에 연결하지 못했습니다. 규칙 해석으로 대신합니다."
     _remember_limits(data)
     if status == 200 and data.get("ok") and isinstance(data.get("fields"), dict):
         return data["fields"], None
-    return None, data.get("message") or f"AI 분석에 실패했어요(코드 {status}). 규칙 해석으로 대신할게요."
+    return None, data.get("message") or f"AI 분석에 실패했습니다. 규칙 해석으로 검색합니다."
 
 
 MAX_CLAUSES = 8
-SPECIALS_FALLBACK = "AI 설명을 받지 못했어요{why}. 규칙 결과와 미리 써 둔 설명·질문으로 보여 드려요."
+SPECIALS_FALLBACK = "AI 설명을 불러오지 못했습니다{why}. 기본 분석과 확인 질문을 표시합니다."
 
 
 def request_specials(clauses, post=None):
@@ -135,12 +135,12 @@ def request_specials(clauses, post=None):
     """
     clauses = [c.strip() for c in (clauses or []) if isinstance(c, str) and c.strip()]
     if not clauses:
-        return None, "설명할 특약이 없어요."
+        return None, "설명할 특약이 없습니다."
     if len(clauses) > MAX_CLAUSES or any(len(c) > MAX_CHARS for c in clauses):
         return None, SPECIALS_FALLBACK.format(why=f"(특약은 {MAX_CLAUSES}개, 문장마다 {MAX_CHARS}자까지)")
     url = api_url()
     if not url:
-        return None, SPECIALS_FALLBACK.format(why="(AI 연결 주소 없음)")
+        return None, SPECIALS_FALLBACK.format(why="(AI 연결 불가)")
     if post is None:
         post = _post_browser if sys.platform == "emscripten" else _post_local
     try:
@@ -158,5 +158,5 @@ def request_specials(clauses, post=None):
         if out:
             return out, None
         return None, SPECIALS_FALLBACK.format(why="(쓸 수 있는 답이 없음)")
-    why = {429: "(지금 이용자가 많음)", 503: "(AI 키 미설정)"}.get(status, f"(코드 {status})")
+    why = {429: "(지금 이용자가 많음)", 503: "(AI 연결 불가)"}.get(status, f"(응답 오류)")
     return None, SPECIALS_FALLBACK.format(why=why)

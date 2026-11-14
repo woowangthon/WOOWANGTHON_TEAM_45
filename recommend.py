@@ -203,9 +203,9 @@ def explain(item, weights, gate):
     rel = {f: parts[f] / weights[f] for f in active}  # 0~1 상대 위치
     good = sorted(active, key=lambda f: -parts[f])[:2]
     bad = [f for f in sorted(active, key=lambda f: rel[f]) if rel[f] < 0.35][:1]
-    reasons = [f"{f}: {labels[f]}" for f in good if rel[f] >= 0.5]
-    weak = [f"{f}: {labels[f]}" for f in bad if f not in good]
-    return reasons or ["조건을 모두 만족하는 매물이에요."], weak
+    reasons = [labels[f] for f in good if rel[f] >= 0.5]
+    weak = [labels[f] for f in bad if f not in good]
+    return reasons or ["조건을 모두 만족하는 매물입니다."], weak
 
 
 MIN_SAMPLES = 3
@@ -251,7 +251,7 @@ def market_compare(row, market):
     """동·유형별 시세와 비교. market: {(dong, kind): (median, n)}."""
     ref = reference_price(market, row["dong"], row["kind"])
     if not ref:
-        return dict(label="비교 불가", detail="비교할 거래 수가 부족해요.", diff=None)
+        return dict(label="비교 불가", detail="비교할 거래 수가 부족합니다.", diff=None)
     median_v, n, scope = ref
     diff = converted_monthly(row) / median_v - 1
     if abs(diff) <= MARKET_BAND:
