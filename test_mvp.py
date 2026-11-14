@@ -267,6 +267,9 @@ def test_rent_range(rows):
     assert c["min_rent"] == 300_000 and c["max_rent"] == 400_000 and u[0] == "월세 30~40만 원"
     c, _ = rc.parse_sentence("월세 30만 원에서 40만 원 원룸")
     assert (c["min_rent"], c["max_rent"]) == (300_000, 400_000)
+    for txt in ("월세 30이상40이하", "월세 30만 원 이상 40만 원 이하"):
+        c, _ = rc.parse_sentence(txt)
+        assert (c["min_rent"], c["max_rent"]) == (300_000, 400_000), txt
     c, _ = rc.parse_sentence("월세 30만원 이상")
     assert c == {"min_rent": 300_000}
     c, _ = rc.parse_sentence("월세 35만 원 이하")
@@ -277,6 +280,11 @@ def test_rent_range(rows):
     assert hits and all(300_000 <= r["rent"] <= 350_000 for r in hits)
     assert len(rc.filter_listings(rows, {"max_rent": 350_000})) >= len(hits)
     print("\n[13] 월세 하한·상한: 문장·AI·필터 OK")
+
+    # 계약 위험 매물 제외 조건 (문장에서 읽기)
+    assert rc.wants_safe_only("위험 없는 원룸") and rc.wants_safe_only("위험한 곳 빼고 월세 40")
+    assert rc.wants_safe_only("안전한 집") and not rc.wants_safe_only("월세 40 정문 10분")
+    print("[14] 계약 위험 매물 제외: 문장 읽기 OK")
 
 
 if __name__ == "__main__":

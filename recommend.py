@@ -46,7 +46,8 @@ def parse_sentence(text):
     cond, understood = {}, []
     # 월세 범위: "월세 30~40", "월세 30만 원에서 40만 원", "월세 30 이상", "월세 40 이하"
     num = r"(\d+(?:\.\d+)?)\s*(만)?\s*(?:원)?"
-    m = re.search(r"월\s*세\s*" + num + r"\s*(?:~|∼|-|에서|부터)\s*" + num, t)
+    m = (re.search(r"월\s*세\s*" + num + r"\s*(?:~|∼|-|에서|부터)\s*" + num, t)
+         or re.search(r"월\s*세\s*" + num + r"\s*(?:이상|넘고)\s*,?\s*" + num + r"\s*(?:이하|까지|미만)", t))
     m_lo = re.search(r"월\s*세\s*" + num + r"\s*(?:이상|넘는|부터)", t)
     if m:
         lo, hi = sorted((_won(m.group(1), m.group(2)), _won(m.group(3), m.group(4) or m.group(2))))
@@ -87,6 +88,14 @@ def parse_sentence(text):
         cond["priorities"] = [f for _, f in found]
         understood.append("중요: " + " > ".join(cond["priorities"]))
     return cond, understood
+
+
+SAFE_ONLY_WORDS = r"위험[한이]?\s*(곳|집|매물|방)?[은는]?\s*(없|빼|제외)|안전한\s*(집|방|매물|곳)"
+
+
+def wants_safe_only(text):
+    """'위험 없는 집', '위험한 곳 빼고', '안전한 방' → 계약 위험 매물 제외."""
+    return bool(re.search(SAFE_ONLY_WORDS, text or ""))
 
 
 def cond_from_ai(fields):

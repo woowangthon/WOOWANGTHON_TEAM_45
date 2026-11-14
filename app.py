@@ -163,13 +163,13 @@ by_id = {r["id"]: r for r in rows}
 
 # ── 상태 ──────────────────────────────────────────────────────
 DEFAULTS = dict(step=1, f_rent=45, f_rent_min=0, f_dep="상관없음", f_gate="정문", f_walk=15,
-                f_kinds=list(rc.KINDS), f_opts=[], f_pri=[], f_top=5,
+                f_kinds=list(rc.KINDS), f_opts=[], f_pri=[], f_top=5, f_safe=False,
                 sentence="", sel_listing=rows[0]["id"], ai_calls=0, searched=None, limits=None, ai_note=None,
                 understood=None, scroll_top=False, f_dep_custom=None, adjusted=None, show_all=False)
 for k, v in DEFAULTS.items():
     st.session_state.setdefault(k, v)
 # 다른 단계로 가서 입력칸이 화면에 없으면 Streamlit이 값을 지우므로, 매번 다시 넣어 유지한다
-for k in ("f_rent", "f_rent_min", "f_dep", "f_gate", "f_walk", "f_kinds", "f_opts", "f_pri", "f_top", "sentence", "sel_listing"):
+for k in ("f_rent", "f_rent_min", "f_safe", "f_dep", "f_gate", "f_walk", "f_kinds", "f_opts", "f_pri", "f_top", "sentence", "sel_listing"):
     st.session_state[k] = st.session_state[k]
 for k in [k for k in st.session_state if str(k).startswith("ck_")]:  # ③ 체크리스트 체크 상태도 유지
     st.session_state[k] = st.session_state[k]
@@ -206,10 +206,10 @@ def current_condition():
                 max_deposit=deposit_choices().get(st.session_state.f_dep),
                 gate=st.session_state.f_gate, max_walk=st.session_state.f_walk,
                 kinds=list(st.session_state.f_kinds), options=list(st.session_state.f_opts),
-                priorities=list(st.session_state.f_pri))
+                priorities=list(st.session_state.f_pri), safe_only=bool(st.session_state.f_safe))
 
 
-SEARCH_KEYS = ("f_rent", "f_rent_min", "f_dep", "f_dep_custom", "f_gate", "f_walk", "f_kinds", "f_opts", "f_pri")
+SEARCH_KEYS = ("f_rent", "f_rent_min", "f_safe", "f_dep", "f_dep_custom", "f_gate", "f_walk", "f_kinds", "f_opts", "f_pri")
 
 
 def reset_inputs():
@@ -254,6 +254,8 @@ def fill_inputs(cond):
         st.session_state.f_opts = cond["options"]
     if "priorities" in cond:
         st.session_state.f_pri = cond["priorities"]
+    if cond.get("safe_only"):
+        st.session_state.f_safe = True
     return adjusted
 
 
@@ -280,6 +282,9 @@ def find_by_sentence():
         else:
             st.session_state.ai_note = None
         cond, understood = rc.cond_from_ai(fields) if fields is not None else rc.parse_sentence(sentence)
+        if rc.wants_safe_only(sentence):  # "위험 없는 집", "안전한 집" → 계약 위험 매물 제외 (AI·규칙 공통)
+            cond["safe_only"] = True
+            understood = understood + ["계약 위험 매물 제외"]
         reset_inputs()
         st.session_state.adjusted = fill_inputs(cond)
         st.session_state.understood = understood
@@ -384,6 +389,9 @@ def results():
     s = st.session_state.searched
     weights = rc.blend_weights(s["cond"]["priorities"])
     hits = rc.filter_listings(rows, s["cond"])
+    if s["cond"].get("safe_only"):  # 검색 조건: 계약서·등기 점검에서 '위험'이 하나라도 있는 집은 빼기
+        hits = [r for r in hits
+                if not cc.count_flags(check_listing(contracts[r["id"]], registries[r["id"]]))[cc.RISK]]
     return hits, rc.score_listings(hits, weights, s["cond"]["gate"]), weights  # 전체 점수순
 
 
@@ -398,6 +406,8 @@ def condition_tags(c, dep_label):
         tags.append(", ".join(c["options"]) + " 필수")
     if c["priorities"]:
         tags.append(" > ".join(c["priorities"]) + " 우선")
+    if c.get("safe_only"):
+        tags.append("계약 위험 매물 제외")
     return tags
 
 
@@ -566,6 +576,9 @@ if step == 1:
             st.multiselect("집 유형", rc.KINDS, key="f_kinds")
             st.multiselect("필수 옵션", rc.OPTIONS, key="f_opts", placeholder="옵션 선택")
         st.multiselect("우선순위 (선택 순서)", rc.FACTORS, key="f_pri", placeholder="우선순위 선택")
+        st.checkbox("계약 위험이 있는 매물 제외", key="f_safe",
+                    help="가상 계약서·등기 점검에서 '위험'이 하나라도 나온 집은 검색 결과에서 뺍니다. "
+                         "'주의'·'확인 필요'만 있는 집은 그대로 보입니다.")
         st.radio("추천 개수", [3, 5], horizontal=True, key="f_top")
         st.button("조건 검색", on_click=find_by_inputs, type="primary", use_container_width=True)
 
