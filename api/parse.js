@@ -7,7 +7,7 @@
 // 요청:  POST /api/parse   {"text": "정문 10분, 월세 40 이하, 세탁기"}
 // 응답:  200 {"ok": true, "fields": {...}}            ← 조건만 돌려줌. 검색·점수는 브라우저의 규칙 코드가 함
 //
-// 11/13 회의: 특약 설명 (계약 점검 화면의 「AI로 특약 설명 듣기」)
+// 11/13 회의: 특약 설명 (계약 점검 화면의 「AI 특약 설명」)
 // 요청:  POST /api/parse   {"task": "specials", "clauses": ["특약 문장", ...]}   (1~8개, 문장마다 200자)
 // 응답:  200 {"ok": true, "items": [{index, concern, category, quote, explain, question}]}
 //        AI는 판정하지 않음. 인용은 원문에 있어야 하고, 안전·효력을 단정하는 설명은 버림
@@ -26,7 +26,7 @@
 //   LIMIT_PER_MINUTE        한 사용자(IP) 분당 호출.     기본 3       (한 사람이 분당 한도를 다 쓰지 않게)
 //   LIMIT_PER_DAY_IP        한 사용자(IP) 하루 호출.     기본 30
 //   MAX_OUTPUT_TOKENS       한 번 답의 최대 토큰.        기본 256     (조건 JSON은 100토큰 안팎)
-//   한도를 바꾸면(유료 전환 등) 위 숫자를 Vercel 환경 변수로 덮어쓰고 Redeploy 하면 돼요.
+//   한도를 바꾸면(유료 전환 등) 위 숫자를 Vercel 환경 변수로 덮어쓰고 Redeploy 하면 됩니다.
 //
 // 사용량 저장소 (11/14 Redis 연동)
 //   KV_REST_API_URL / KV_REST_API_TOKEN          Vercel Marketplace의 Upstash Redis를 연결하면 자동으로 생김
@@ -35,12 +35,12 @@
 //   REDIS_REQUIRED     선택. "1"이면 Redis 설정이 없을 때도 Gemini를 부르지 않음(운영에서 Redis가 꼭 있어야 할 때)
 //
 //   - Redis가 설정돼 있으면: 모든 함수 인스턴스가 같은 카운터를 써요. 검사와 증가는 Lua 스크립트 하나로
-//     원자적으로 해서 동시에 요청이 와도 한도를 넘지 않아요. Google 429 뒤 1분 쉼(cooldown)도 Redis에 둬서
+//     원자적으로 해서 동시에 요청이 와도 한도를 넘지 않습니다. Google 429 뒤 1분 쉼(cooldown)도 Redis에 둬서
 //     모든 인스턴스가 함께 쉬어요(Google 한도는 키 하나에 걸리므로 공유해야 함).
 //   - Redis 오류·지연(2초)이면 Gemini를 부르지 않고 429 {error:"limit_unavailable"}로 답해요.
 //     화면은 기존처럼 규칙 해석으로 대신해요(안전하게 막힘).
 //   - Redis 설정이 아예 없으면(연결 전): 예전처럼 인스턴스 메모리로 세요. 연결 전에 배포돼도 사이트가 멈추지 않게.
-//   응답 헤더 X-RateLimit-Store: redis | memory 로 지금 어느 쪽인지 확인할 수 있어요(비밀 값은 안 보임).
+//   응답 헤더 X-RateLimit-Store: redis | memory 로 지금 어느 쪽인지 확인할 수 있습니다(비밀 값은 안 보임).
 //
 // Redis 키 (모두 만료가 있어 저절로 지워짐, 날짜는 한국 시간 기준)
 //   {prefix}:day:{YYYY-MM-DD}:total        하루 전체 호출 수     — 2일 뒤 만료 (날짜가 바뀌면 새 키 = 자정 초기화)
@@ -284,13 +284,13 @@ const memoryLimiter = {
 };
 
 const LIMIT_MESSAGES = {
-  per_minute: "검색을 너무 자주 했어요. 1분 뒤에 다시 시도해 주세요.",
-  daily_ip: "오늘 문장 검색 횟수를 다 썼어요. 「조건 직접 고르기」로 찾아 주세요.",
-  global_minute: "지금 이용자가 많아요. 간단 해석으로 대신 찾을게요.",
-  global_tokens: "지금 이용자가 많아요. 간단 해석으로 대신 찾을게요.",
-  cooldown: "지금 이용자가 많아요. 간단 해석으로 대신 찾을게요.",
-  daily_total: "오늘 문장 검색 한도에 도달했어요. 간단 해석으로 대신 찾을게요.",
-  limit_unavailable: "지금은 AI 사용량을 확인할 수 없어요. 간단 해석으로 대신 찾을게요.",
+  per_minute: "검색을 너무 자주 했습니다. 1분 뒤에 다시 시도하십시오.",
+  daily_ip: "오늘 문장 검색 횟수를 모두 사용했습니다. 「세부 조건」로 검색하십시오.",
+  global_minute: "지금 이용자가 많아요. 간단 해석으로 검색합니다.",
+  global_tokens: "지금 이용자가 많아요. 간단 해석으로 검색합니다.",
+  cooldown: "지금 이용자가 많아요. 간단 해석으로 검색합니다.",
+  daily_total: "오늘 문장 검색 한도에 도달했습니다. 간단 해석으로 검색합니다.",
+  limit_unavailable: "지금은 AI 사용량을 확인할 수 없습니다. 간단 해석으로 검색합니다.",
 };
 
 // ── Gemini 호출 ──────────────────────────────────────────────
@@ -302,7 +302,7 @@ const PROMPT = `너는 충북대 근처 자취방 검색 조건을 뽑는 도우
 - max_walk_min: 학교 문까지 도보 시간 상한(분, 정수). "걸어서 10분" → 10
 - gate: 기준 문. ${GATES.join("/")} 중 하나. 문을 말하지 않았으면 null
 - kinds: 집 유형. ${KINDS.join("/")} 중에서만
-- options: 꼭 있어야 하는 옵션. ${OPTIONS.join("/")} 중에서만
+- options: 필수 옵션. ${OPTIONS.join("/")} 중에서만
 - priorities: 중요하게 여기는 것. ${FACTORS.join("/")} 중에서만, 문장에 나온 순서대로.
   예) 조용한/소음 적은 → 조용함, 싼/저렴/가성비 → 가격, 학교 가까운 → 거리, 넓은 → 넓이, 밝은/햇빛 → 채광, 관리비 적은 → 관리비
 
@@ -333,8 +333,8 @@ const SPECIALS_PROMPT = `너는 한국 주택 월세 계약서의 특약을 처�
 - concern: 세입자가 계약 전에 확인하거나 물어봐야 할 내용이 있으면 true, 흔한 생활 규칙이거나 세입자를 보호하는 문장이면 false
 - category: 정해진 목록 중 하나
 - quote: 확인이 필요한 부분을 특약 원문에서 글자 그대로 복사 (원문에 없는 글자를 쓰지 말 것, 30자 이내). concern이 false면 빈 문자열
-- explain: 쉬운 한국어 1~2문장. 이 문장이 세입자에게 무슨 뜻인지 설명. "무효다", "불법이다", "사기다", "안전하다", "문제없다"처럼 법적 효력이나 안전을 단정하지 말 것
-- question: 집주인이나 중개사에게 물어볼 질문 1문장. concern이 false면 빈 문자열
+- explain: 쉬운 한국어 1~2문장. 반드시 합니다/입니다체, 감탄·이모지·해요체 금지. 이 문장이 세입자에게 무슨 뜻인지 설명. "무효다", "불법이다", "사기다", "안전하다", "문제없다"처럼 법적 효력이나 안전을 단정하지 말 것
+- question: 집주인이나 중개사에게 물어볼 질문 1문장. 합니까/입니까체 사용, 해요체 금지. concern이 false면 빈 문자열
 특약:
 `;
 const SPECIALS_SCHEMA = {
@@ -439,15 +439,15 @@ function sanitize(o) {
 }
 
 const ERROR_MESSAGES = {
-  no_key: "AI 키가 아직 설정되지 않았어요. 규칙 해석으로 대신할게요.",
-  gemini_quota: "지금 이용자가 많아요. 간단 해석으로 대신 찾을게요.",
-  gemini_timeout: "AI 응답이 늦어요. 규칙 해석으로 대신할게요.",
+  no_key: "AI 연결을 사용할 수 없습니다. 규칙 해석으로 검색합니다.",
+  gemini_quota: "지금 이용자가 많아요. 간단 해석으로 검색합니다.",
+  gemini_timeout: "AI 응답이 지연되고 있습니다. 규칙 해석으로 대신합니다.",
 };
 
 // ── Origin 검사 (11/14) ─────────────────────────────────────
-// 다른 웹사이트가 방문자 브라우저를 시켜 이 API(=우리 Gemini 할당량)를 쓰는 것을 막는 장치예요.
-// curl 같은 프로그램은 Origin 헤더를 마음대로 넣을 수 있어서 인증 수단은 아니에요. 남용은 위의 호출 제한이 막아요.
-// 정확히 같은 주소만 허용하고 *.vercel.app 같은 넓은 와일드카드는 쓰지 않아요.
+// 다른 웹사이트가 방문자 브라우저를 시켜 이 API(=우리 Gemini 할당량)를 쓰는 것을 막는 장치입니다.
+// curl 같은 프로그램은 Origin 헤더를 마음대로 넣을 수 있어서 인증 수단은 아닙니다. 남용은 위의 호출 제한이 막아요.
+// 정확히 같은 주소만 허용하고 *.vercel.app 같은 넓은 와일드카드는 쓰지 않습니다.
 const DEFAULT_ORIGINS = ["https://woowangthon-team-45.vercel.app"];
 const LOCAL_ORIGIN = /^http:\/\/(localhost|127\.0\.0\.1)(:\d{1,5})?$/;
 
@@ -495,7 +495,7 @@ async function handler(req, res, deps = {}) {
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   }
-  const forbidden = () => send(res, 403, { ok: false, error: "origin", message: "허용되지 않은 사이트에서 온 요청이에요." });
+  const forbidden = () => send(res, 403, { ok: false, error: "origin", message: "허용되지 않은 사이트에서 온 요청입니다." });
   if (req.method === "OPTIONS") return okOrigin ? send(res, 204, {}) : forbidden();
   // GET: Origin이 없으면(같은 사이트·주소창) 허용, 다른 사이트 Origin이면 거부
   // POST: Origin이 반드시 있어야 하고 허용 목록에 있어야 함 (브라우저는 POST에 항상 Origin을 붙임)
@@ -518,13 +518,13 @@ async function handler(req, res, deps = {}) {
     if (!limits) return send(res, 503, { ok: false, error: "limit_unavailable", message: LIMIT_MESSAGES.limit_unavailable });
     return send(res, 200, { ok: true, model: MODEL, limits }); // 화면의 「검색 제한」
   }
-  if (req.method !== "POST") return send(res, 405, { ok: false, error: "method", message: "POST만 받아요." });
+  if (req.method !== "POST") return send(res, 405, { ok: false, error: "method", message: "POST만 받습니다." });
 
   let body;
   try {
     body = await readBody(req);
   } catch {
-    return send(res, 400, { ok: false, error: "bad_json", message: "요청 형식이 잘못됐어요." });
+    return send(res, 400, { ok: false, error: "bad_json", message: "요청 형식이 올바르지 않습니다." });
   }
   const task = body?.task === "specials" ? "specials" : "conditions";
   let text = "";
@@ -533,15 +533,15 @@ async function handler(req, res, deps = {}) {
     // 특약: 문장 1~8개, 각 200자 이내
     clauses = Array.isArray(body?.clauses) ? body.clauses.map((c) => (typeof c === "string" ? c.trim() : "")) : [];
     if (!clauses.length || clauses.some((c) => !c))
-      return send(res, 400, { ok: false, error: "empty", message: "설명할 특약이 없어요." });
+      return send(res, 400, { ok: false, error: "empty", message: "설명할 특약이 없습니다." });
     if (clauses.length > MAX_CLAUSES || clauses.some((c) => c.length > MAX_CHARS))
-      return send(res, 413, { ok: false, error: "too_long", message: `특약은 ${MAX_CLAUSES}개, 문장마다 ${MAX_CHARS}자까지 설명할 수 있어요.` });
+      return send(res, 413, { ok: false, error: "too_long", message: `특약은 ${MAX_CLAUSES}개, 문장마다 ${MAX_CHARS}자까지 설명할 수 있습니다.` });
     text = clauses.map((c, i) => `${i}. ${c}`).join("\n");
   } else {
     text = typeof body?.text === "string" ? body.text.trim() : "";
-    if (!text) return send(res, 400, { ok: false, error: "empty", message: "문장을 입력해 주세요." });
+    if (!text) return send(res, 400, { ok: false, error: "empty", message: "문장을 입력하십시오." });
     if (text.length > MAX_CHARS)
-      return send(res, 413, { ok: false, error: "too_long", message: `문장은 ${MAX_CHARS}자 이내로 써 주세요.` });
+      return send(res, 413, { ok: false, error: "too_long", message: `문장은 ${MAX_CHARS}자 이내로 입력하십시오.` });
   }
 
   const key = deps.key ?? process.env.GEMINI_API_KEY;
@@ -567,7 +567,7 @@ async function handler(req, res, deps = {}) {
     // 기록 실패는 응답을 막지 않음 (다음 요청의 검사에서 Redis 장애면 다시 막힘)
   }
   if (out.error) {
-    const msg = ERROR_MESSAGES[out.error] || "AI 분석에 실패했어요. 규칙 해석으로 대신할게요.";
+    const msg = ERROR_MESSAGES[out.error] || "AI 분석에 실패했습니다. 규칙 해석으로 대신합니다.";
     return send(res, out.error === "gemini_quota" ? 429 : 502,
       { ok: false, error: out.error, message: msg, limits: await status() });
   }
